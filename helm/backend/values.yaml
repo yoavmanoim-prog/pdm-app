@@ -1,0 +1,37 @@
+# Number of pod replicas to run
+replicaCount: 2
+
+image:
+  repository: 302954730632.dkr.ecr.eu-north-1.amazonaws.com/pdm-backend
+  tag: "v1.0.0"
+  pullPolicy: Always
+
+# The Kubernetes Service that exposes your pods inside the cluster
+service:
+  type: ClusterIP
+  port: 8000
+
+# Ingress exposes your app to the outside world via a domain name
+ingress:
+  enabled: true
+  host: pdm.example.com
+
+# Resource limits prevent one pod from eating all the node's CPU/memory
+resources:
+  requests:
+    cpu: "100m"      # 100 millicores = 0.1 of a CPU core
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# Auto-scaling settings
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+# Needed to pull images from private ECR
+imagePullSecrets:
+  - name: ecr-secret
