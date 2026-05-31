@@ -2,7 +2,7 @@
 replicaCount: 2
 
 image:
-  repository: 302954730632.dkr.ecr.eu-north-1.amazonaws.com/pdm-backend
+  repository: 302954730632.dkr.ecr.us-east-1.amazonaws.com/pdm-backend
   tag: "v1.0.0"
   pullPolicy: Always
 
