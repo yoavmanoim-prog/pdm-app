@@ -2,18 +2,17 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
-
 
 class Base(DeclarativeBase):
     pass
 
 
+def _engine():
+    return create_engine(os.environ["DATABASE_URL"])
+
+
 def get_db():
-    db = SessionLocal()
+    db = sessionmaker(bind=_engine())()
     try:
         yield db
     finally:
