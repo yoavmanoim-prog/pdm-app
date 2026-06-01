@@ -33,6 +33,9 @@ jobs:
 
       - name: Test
         run: pytest tests/ -v
+        env:
+          DATABASE_URL: "postgresql://test:test@localhost/test"
+          S3_BUCKET: "test-bucket"
 
   build-and-push:
     needs: lint-and-test
