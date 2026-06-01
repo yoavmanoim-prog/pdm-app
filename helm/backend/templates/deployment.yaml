@@ -5,7 +5,9 @@ metadata:
   labels:
     app: pdm-backend
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app: pdm-backend
@@ -14,6 +16,7 @@ spec:
       labels:
         app: pdm-backend
     spec:
+      serviceAccountName: pdm-backend
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
@@ -24,24 +27,28 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8000
-
-          # Liveness probe: if this fails repeatedly, Kubernetes restarts the pod
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pdm-backend-secret
+                  key: database-url
+            - name: S3_BUCKET
+              value: {{ .Values.aws.s3Bucket }}
+            - name: AWS_REGION
+              value: {{ .Values.aws.region }}
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 15
-
-          # Readiness probe: if this fails, Kubernetes stops sending traffic to this pod
-          # (but doesn't restart it)
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
-
           resources:
             requests:
               cpu: "{{ .Values.resources.requests.cpu }}"
