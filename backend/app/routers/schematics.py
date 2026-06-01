@@ -56,7 +56,7 @@ def list_schematics(
     model: str = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(Schematic).filter(Schematic.deleted == False, Schematic.parent_id == None)  # noqa: E712
+    query = db.query(Schematic).filter(Schematic.deleted == False, Schematic.parent_id.is_(None))  # noqa: E712
     if part_number:
         query = query.filter(Schematic.part_number.ilike(f"%{part_number}%"))
     if vehicle_make:
