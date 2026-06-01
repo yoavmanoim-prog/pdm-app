@@ -30,13 +30,11 @@ autoscaling:
 imagePullSecrets:
   - name: ecr-secret
 
-# AWS — filled in from terraform output
 aws:
   region: "us-east-1"
   s3Bucket: "pdm-docs-production"
   irsaRoleArn: "arn:aws:iam::302954730632:role/pdm-backend-production"
 
-# PostgreSQL — runs as a StatefulSet inside the cluster
 postgres:
   image: "postgres:16-alpine"
   database: "pdm"
