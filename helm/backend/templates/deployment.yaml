@@ -33,8 +33,7 @@ spec:
               done
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          command: ["alembic", "upgrade", "head"]
-          workingDir: /app
+          command: ["sh", "-c", "cd /app && PYTHONPATH=/app alembic upgrade head"]
           env:
             - name: DATABASE_URL
               valueFrom:
