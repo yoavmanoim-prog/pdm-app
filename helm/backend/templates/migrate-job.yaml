@@ -1,3 +1,4 @@
+{{- if .Values.migrations.jobEnabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -5,8 +6,10 @@ metadata:
   annotations:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-weight: "0"
-    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
+  ttlSecondsAfterFinished: 60
+  activeDeadlineSeconds: 300
   template:
     spec:
       serviceAccountName: pdm-backend
@@ -32,3 +35,4 @@ spec:
                 secretKeyRef:
                   name: pdm-backend-secret
                   key: database-url
+{{- end }}
