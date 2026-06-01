@@ -41,6 +41,7 @@ postgres:
   user: "pdm"
   password: "changeme"
   storage: "5Gi"
+  storageClass: "gp2"
 
 migrations:
   jobEnabled: false
