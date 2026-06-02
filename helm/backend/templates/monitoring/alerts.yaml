@@ -1,0 +1,48 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pdm-backend-alerts
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: pdm-backend
+      rules:
+        - alert: PDMBackendCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace=~"pdm-.*",
+              container="backend"
+            }[15m]) > 3
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PDM backend pod is crash looping"
+            description: "Pod {{ $labels.pod }} in {{ $labels.namespace }} has restarted more than 3 times in 15 minutes."
+
+        - alert: PDMPostgresDown
+          expr: |
+            kube_pod_status_ready{
+              namespace=~"pdm-.*",
+              pod=~"pdm-postgres-.*"
+            } == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PDM Postgres is not ready"
+            description: "Postgres pod {{ $labels.pod }} in {{ $labels.namespace }} has been not ready for 2 minutes."
+
+        - alert: PDMHighMemory
+          expr: |
+            container_memory_working_set_bytes{
+              namespace=~"pdm-.*",
+              container="backend"
+            } > 400 * 1024 * 1024
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PDM backend memory usage is high"
+            description: "Pod {{ $labels.pod }} is using more than 400Mi of memory."
