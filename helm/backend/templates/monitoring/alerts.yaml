@@ -19,7 +19,7 @@ spec:
             severity: critical
           annotations:
             summary: "PDM backend pod is crash looping"
-            description: "Pod {{ $labels.pod }} in {{ $labels.namespace }} has restarted more than 3 times in 15 minutes."
+            description: "A pdm-backend pod has restarted more than 3 times in 15 minutes."
 
         - alert: PDMPostgresDown
           expr: |
@@ -32,7 +32,7 @@ spec:
             severity: critical
           annotations:
             summary: "PDM Postgres is not ready"
-            description: "Postgres pod {{ $labels.pod }} in {{ $labels.namespace }} has been not ready for 2 minutes."
+            description: "A pdm-postgres pod has been not ready for 2 minutes."
 
         - alert: PDMHighMemory
           expr: |
@@ -45,4 +45,4 @@ spec:
             severity: warning
           annotations:
             summary: "PDM backend memory usage is high"
-            description: "Pod {{ $labels.pod }} is using more than 400Mi of memory."
+            description: "A pdm-backend pod has been using more than 400Mi of memory for 5 minutes."
