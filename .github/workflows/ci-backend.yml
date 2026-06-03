@@ -2,10 +2,10 @@ name: Backend CI
 
 on:
   push:
-    branches: ['**']
-    tags: ['v*']
+    branches: ['**']   # lint + test runs on every branch
+    tags: ['v*']       # v* tags trigger production deploy
   pull_request:
-    branches: [main]
+    branches: [main, develop]  # run checks on PRs to main and develop
 
 env:
   ECR_REGISTRY: 302954730632.dkr.ecr.us-east-1.amazonaws.com
@@ -40,8 +40,8 @@ jobs:
 
   build-and-push:
     needs: lint-and-test
-    # only build on main branch pushes or version tags
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    # build on feature branches (dev), develop (staging), and version tags (production)
+    if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/feature/')
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # needed for OIDC authentication with AWS
@@ -70,7 +70,8 @@ jobs:
           IMAGE=$ECR_REGISTRY/$ECR_BACKEND:${{ steps.meta.outputs.tag }}
           docker build -t $IMAGE ./backend
           docker push $IMAGE
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          # also tag as latest when merging to develop
+          if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
             docker tag $IMAGE $ECR_REGISTRY/$ECR_BACKEND:latest
             docker push $ECR_REGISTRY/$ECR_BACKEND:latest
           fi
@@ -81,7 +82,7 @@ jobs:
           IMAGE=$ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }}
           docker build -t $IMAGE ./frontend
           docker push $IMAGE
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
             docker tag $IMAGE $ECR_REGISTRY/$ECR_FRONTEND:latest
             docker push $ECR_REGISTRY/$ECR_FRONTEND:latest
           fi
@@ -97,10 +98,13 @@ jobs:
         run: |
           git clone https://x-access-token:${GITOPS_PAT}@github.com/yoavmanoim-prog/pdm-gitops.git
           cd pdm-gitops
+          # tags → production, develop → staging, feature/* → dev
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             ENV=production
-          else
+          elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
             ENV=staging
+          else
+            ENV=dev
           fi
           # update the image tag — both backend and frontend share the same tag
           sed -i "s/tag: .*/tag: ${IMAGE_TAG}/" ${ENV}/backend/values.yaml

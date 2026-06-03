@@ -22,15 +22,8 @@ spec:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
       {{- end }}
       initContainers:
-        - name: wait-for-postgres
-          image: busybox
-          command:
-            - sh
-            - -c
-            - |
-              until nc -z pdm-postgres 5432; do
-                echo "waiting for postgres..."; sleep 2
-              done
+        # runs alembic migrations before the backend starts
+        # RDS is always available so no need to wait for it
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           command: ["sh", "-c", "cd /app && PYTHONPATH=/app alembic upgrade head"]
