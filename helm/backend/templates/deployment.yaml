@@ -11,6 +11,11 @@ spec:
   selector:
     matchLabels:
       app: pdm-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1  # kill 1 old pod before starting a new one
+      maxSurge: 0        # never create extra pods — keeps total count stable
   template:
     metadata:
       labels:
