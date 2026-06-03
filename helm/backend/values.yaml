@@ -45,3 +45,7 @@ postgres:
 
 migrations:
   jobEnabled: false
+
+# frontend image — CI updates the tag alongside the backend
+frontend:
+  repository: 302954730632.dkr.ecr.us-east-1.amazonaws.com/pdm-frontend

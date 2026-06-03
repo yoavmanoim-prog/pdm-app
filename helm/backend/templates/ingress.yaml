@@ -4,18 +4,27 @@ kind: Ingress
 metadata:
   name: pdm-backend
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"   # Allow large PDF uploads
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"   # allow large PDF uploads
 spec:
   ingressClassName: nginx
   rules:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /
+          # /api/ goes to the FastAPI backend — handles all data and file operations
+          - path: /api/
             pathType: Prefix
             backend:
               service:
                 name: pdm-backend
                 port:
                   number: {{ .Values.service.port }}
+          # / (everything else) goes to the React frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pdm-frontend
+                port:
+                  number: 80
 {{- end }}

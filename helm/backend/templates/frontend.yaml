@@ -1,0 +1,54 @@
+---
+# Deployment — tells Kubernetes how many frontend pods to run and which image to use
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pdm-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pdm-frontend
+  template:
+    metadata:
+      labels:
+        app: pdm-frontend
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: frontend
+          # image tag comes from values.yaml, updated by CI on every push
+          image: "{{ .Values.frontend.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 80
+          # health check — Kubernetes uses this to know if the pod is ready
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+---
+# Service — gives the frontend a stable internal address inside the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: pdm-frontend
+spec:
+  selector:
+    app: pdm-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
