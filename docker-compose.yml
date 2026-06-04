@@ -1,0 +1,71 @@
+services:
+
+  # ── Local Vault ─────────────────────────────────────────────────────────────
+  # This is the engineer's local workspace — where they make changes and commits
+  local-vault:
+    build: ./backend
+    ports:
+      - "8000:8000"           # access at http://localhost:8000
+    environment:
+      DATABASE_URL: postgresql://pdm:pdm@local-db:5432/pdm
+      VAULT_MODE: local        # tells the app it is running as a local vault
+      REMOTE_VAULT_URL: http://remote-vault:8001  # where to push/pull
+      S3_BUCKET: ""            # no S3 in local dev — files stored on disk
+      AWS_REGION: us-east-1
+    depends_on:
+      local-db:
+        condition: service_healthy  # wait for postgres to be ready before starting
+    volumes:
+      - ./backend:/app         # live reload — code changes reflect instantly
+
+  # ── Remote Vault ────────────────────────────────────────────────────────────
+  # This is the shared remote — like GitHub's servers
+  remote-vault:
+    build: ./backend
+    ports:
+      - "8001:8000"           # access at http://localhost:8001
+    environment:
+      DATABASE_URL: postgresql://pdm:pdm@remote-db:5432/pdm
+      VAULT_MODE: remote       # tells the app it is running as a remote vault
+      S3_BUCKET: ""
+      AWS_REGION: us-east-1
+    depends_on:
+      remote-db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  # ── Local Database ───────────────────────────────────────────────────────────
+  local-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pdm
+      POSTGRES_USER: pdm
+      POSTGRES_PASSWORD: pdm
+    volumes:
+      - local-db-data:/var/lib/postgresql/data  # persist data between restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Remote Database ──────────────────────────────────────────────────────────
+  remote-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pdm
+      POSTGRES_USER: pdm
+      POSTGRES_PASSWORD: pdm
+    volumes:
+      - remote-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# named volumes so data survives container restarts
+volumes:
+  local-db-data:
+  remote-db-data:
