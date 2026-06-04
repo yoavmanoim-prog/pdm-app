@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, Text, ForeignKey, Boolean, JSON
+from sqlalchemy import String, DateTime, Text, ForeignKey, Boolean, JSON  # JSON kept for Commit.diff_report and protocol_violations
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
@@ -39,16 +39,12 @@ class CommitFile(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     commit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("commits.id"), nullable=False)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), nullable=False)
-    # permanent S3 key for the SVG at this exact commit
-    s3_key_svg: Mapped[str | None] = mapped_column(String(500))
     # permanent S3 key for the PDF at this exact commit
     s3_key_pdf: Mapped[str | None] = mapped_column(String(500))
-    # SHA-256 of SVG content — rejects commits with identical content
+    # SHA-256 of PDF content — used to reject commits with no actual changes
     content_hash: Mapped[str | None] = mapped_column(String(64))
     # "added", "modified", or "deleted"
     change_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    # JSON diff of changed SVG elements vs previous version
-    pdf_diff: Mapped[dict | None] = mapped_column(JSON)
 
     commit: Mapped["Commit"] = relationship(back_populates="files")
     document: Mapped["Document"] = relationship(back_populates="commit_files")
