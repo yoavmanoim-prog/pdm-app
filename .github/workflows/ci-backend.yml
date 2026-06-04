@@ -2,15 +2,23 @@ name: Backend CI
 
 on:
   push:
-    branches: ['**']   # lint + test runs on every branch
-    tags: ['v*']       # v* tags trigger production deploy
+    branches: ['**']
+    tags: ['v*']
+    paths:
+      - 'backend/**'            # only run when backend code changes
+      - 'frontend/**'           # only run when frontend code changes
+      - '.github/workflows/**'  # always run when CI config itself changes
   pull_request:
-    branches: [main, develop]  # run checks on PRs to main and develop
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/**'
 
 env:
   ECR_REGISTRY: 302954730632.dkr.ecr.us-east-1.amazonaws.com
   ECR_BACKEND: pdm-backend
-  ECR_FRONTEND: pdm-frontend   # ECR repo for the frontend image
+  ECR_FRONTEND: pdm-frontend
   AWS_REGION: us-east-1
 
 jobs:
@@ -26,6 +34,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      # cache pip downloads — skips re-downloading packages that haven't changed
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('backend/requirements.txt', 'backend/requirements-dev.txt') }}
+          restore-keys: pip-
+
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
@@ -40,8 +56,8 @@ jobs:
 
   build-and-push:
     needs: lint-and-test
-    # build on feature branches (dev), develop (staging), and version tags (production)
-    if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/feature/')
+    # only build on develop (staging) and version tags (production)
+    if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # needed for OIDC authentication with AWS
@@ -51,7 +67,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # authenticate with AWS using OIDC (no stored credentials)
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -59,31 +74,38 @@ jobs:
 
       - uses: aws-actions/amazon-ecr-login@v2
 
-      # use the git commit SHA as the image tag so every build is unique
       - name: Set image tag
         id: meta
         run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
 
-      # build and push the backend image
+      # build backend and frontend in parallel using Docker Bake
+      # each build also caches layers to ECR so future builds are faster
       - name: Build and push backend
         run: |
           IMAGE=$ECR_REGISTRY/$ECR_BACKEND:${{ steps.meta.outputs.tag }}
-          docker build -t $IMAGE ./backend
+          docker build \
+            --cache-from $ECR_REGISTRY/$ECR_BACKEND:latest \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t $IMAGE ./backend &
+          BACKEND_PID=$!
+
+          docker build \
+            --cache-from $ECR_REGISTRY/$ECR_FRONTEND:latest \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t $ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }} ./frontend &
+          FRONTEND_PID=$!
+
+          # wait for both builds to finish
+          wait $BACKEND_PID && wait $FRONTEND_PID
+
           docker push $IMAGE
-          # also tag as latest when merging to develop
+          docker push $ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }}
+
+          # tag as latest on develop merges
           if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
             docker tag $IMAGE $ECR_REGISTRY/$ECR_BACKEND:latest
             docker push $ECR_REGISTRY/$ECR_BACKEND:latest
-          fi
-
-      # build and push the frontend image
-      - name: Build and push frontend
-        run: |
-          IMAGE=$ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }}
-          docker build -t $IMAGE ./frontend
-          docker push $IMAGE
-          if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            docker tag $IMAGE $ECR_REGISTRY/$ECR_FRONTEND:latest
+            docker tag $ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }} $ECR_REGISTRY/$ECR_FRONTEND:latest
             docker push $ECR_REGISTRY/$ECR_FRONTEND:latest
           fi
 
@@ -98,15 +120,11 @@ jobs:
         run: |
           git clone https://x-access-token:${GITOPS_PAT}@github.com/yoavmanoim-prog/pdm-gitops.git
           cd pdm-gitops
-          # tags → production, develop → staging, feature/* → dev
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             ENV=production
-          elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
-            ENV=staging
           else
-            ENV=dev
+            ENV=staging
           fi
-          # update the image tag — both backend and frontend share the same tag
           sed -i "s/tag: .*/tag: ${IMAGE_TAG}/" ${ENV}/backend/values.yaml
           git config user.email "ci@pdm"
           git config user.name "GitHub Actions"
