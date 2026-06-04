@@ -38,6 +38,8 @@ services:
   # ── Local Database ───────────────────────────────────────────────────────────
   local-db:
     image: postgres:16-alpine
+    ports:
+      - "5432:5432"   # expose to localhost so Alembic and tools can connect directly
     environment:
       POSTGRES_DB: pdm
       POSTGRES_USER: pdm
