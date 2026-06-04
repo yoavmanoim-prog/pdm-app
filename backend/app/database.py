@@ -1,25 +1,29 @@
-import os
-from functools import lru_cache
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import sessionmaker, Session
 
+# Both start as None — set by init_db() when the app starts
+_engine: Engine | None = None
+_SessionLocal: sessionmaker | None = None
 
-@lru_cache(maxsize=1)
-def get_engine() -> Engine:
-    # lru_cache makes this a singleton — engine is created once and reused for all requests
-    # thread-safe and lazy: DATABASE_URL is only read on the first real request, not at import time
-    return create_engine(
-        os.environ["DATABASE_URL"],
-        pool_pre_ping=True,  # checks the connection is alive before using it
-        pool_size=5,         # keep 5 connections open and ready
-        max_overflow=10,     # allow up to 10 extra connections under heavy load
+
+def init_db(database_url: str) -> None:
+    # Called once in the FastAPI lifespan handler at startup
+    # This is the "lazy" pattern — DATABASE_URL is never read at import time
+    global _engine, _SessionLocal
+    _engine = create_engine(
+        database_url,
+        pool_pre_ping=True,  # checks connection is alive before using it
+        pool_size=5,
+        max_overflow=10,
     )
+    _SessionLocal = sessionmaker(bind=_engine)
 
 
 def get_db():
-    # FastAPI injects this into any route that declares: db: Session = Depends(get_db)
-    # yield means the session is automatically closed after the request finishes
-    db: Session = sessionmaker(bind=get_engine())()
+    # FastAPI injects this into routes via Depends(get_db)
+    # yields a session and closes it automatically after the request
+    assert _SessionLocal is not None, "init_db() was not called at startup"
+    db: Session = _SessionLocal()
     try:
         yield db
     finally:

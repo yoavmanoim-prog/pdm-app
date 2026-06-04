@@ -1,8 +1,9 @@
-# Import all models here so SQLAlchemy can find them when creating tables.
-# Any model not imported here won't be picked up by Alembic migrations.
+# Import all models here so SQLAlchemy and Alembic can find them.
+# Any model not imported here won't be picked up in migrations.
 from app.models.base import Base
 from app.models.repository import Repository
 from app.models.document import Document
+from app.models.branch import Branch
 from app.models.commit import Commit, CommitFile
 from app.models.bom import BOMEntry
 from app.models.revision import Revision
@@ -12,6 +13,7 @@ __all__ = [
     "Base",
     "Repository",
     "Document",
+    "Branch",
     "Commit",
     "CommitFile",
     "BOMEntry",

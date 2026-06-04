@@ -3,7 +3,7 @@ uvicorn==0.29.0
 
 # database
 sqlalchemy==2.0.30
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.12
 alembic==1.13.1
 
 # AWS — S3 storage for documents
@@ -16,5 +16,6 @@ pypdf==6.12.2          # merging PDF files
 # SVG/PDF conversion — converts uploaded PDFs to SVG for internal storage
 pymupdf==1.27.2
 
-# data validation
+# data validation and settings management
 pydantic==2.7.1
+pydantic-settings==2.2.1  # reads config from environment variables and .env files

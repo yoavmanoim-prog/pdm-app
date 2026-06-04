@@ -1,29 +1,37 @@
-import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from app.config import settings
+from app.database import init_db
 
-# Read vault mode at startup — "local" (engineer's workspace) or "remote" (shared server)
-# Defaults to "local" so the app works without any env vars set
-VAULT_MODE = os.getenv("VAULT_MODE", "local")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # runs once at startup — initialises the database connection pool
+    # this is why we never read DATABASE_URL at import time
+    init_db(settings.DATABASE_URL)
+    yield
+    # anything after yield runs at shutdown (cleanup if needed)
+
 
 app = FastAPI(
     title="PDM Vault",
-    description="Git-like Product Data Management system for engineering schematics",
+    description="Git-like Product Data Management for engineering schematics",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 
 @app.get("/")
 def root():
-    # Basic status check — shows which vault mode this instance is running as
     return {
         "status": "ok",
         "app": "PDM Vault",
-        "vault_mode": VAULT_MODE,
+        "vault_mode": settings.VAULT_MODE,
     }
 
 
 @app.get("/health")
 def health():
-    # Kubernetes uses this endpoint for liveness and readiness probes
-    # Intentionally does NOT check the database — the probe should be lightweight
-    return {"healthy": True, "vault_mode": VAULT_MODE}
+    # lightweight probe — does NOT check the database
+    # Kubernetes uses this for liveness and readiness checks
+    return {"healthy": True, "vault_mode": settings.VAULT_MODE}
