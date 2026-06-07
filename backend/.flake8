@@ -1,2 +1,5 @@
 [flake8]
 max-line-length = 120
+# F821 = undefined name — ignored because SQLAlchemy uses string forward references
+# in Mapped["ClassName"] type hints which flake8 incorrectly flags as undefined
+extend-ignore = F821
