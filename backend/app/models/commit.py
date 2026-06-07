@@ -39,11 +39,9 @@ class CommitFile(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     commit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("commits.id"), nullable=False)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), nullable=False)
-    # permanent S3 key for the SVG at this exact commit
-    s3_key_svg: Mapped[str | None] = mapped_column(String(500))
     # permanent S3 key for the PDF at this exact commit
     s3_key_pdf: Mapped[str | None] = mapped_column(String(500))
-    # SHA-256 of SVG content — rejects commits with identical content
+    # SHA-256 of PDF content — used to reject commits with no actual changes
     content_hash: Mapped[str | None] = mapped_column(String(64))
     # "added", "modified", or "deleted"
     change_type: Mapped[str] = mapped_column(String(20), nullable=False)
