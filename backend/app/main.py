@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.config import settings
 from app.database import init_db
-from app.routers import repositories, documents
+from app.routers import repositories, documents, commits
 
 
 @asynccontextmanager
@@ -24,6 +24,7 @@ app = FastAPI(
 # register all routers — each router handles a group of related endpoints
 app.include_router(repositories.router)
 app.include_router(documents.router)
+app.include_router(commits.router)
 
 
 @app.get("/")
