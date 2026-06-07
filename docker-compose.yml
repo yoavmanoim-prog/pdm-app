@@ -10,13 +10,14 @@ services:
       DATABASE_URL: postgresql://pdm:pdm@local-db:5432/pdm
       VAULT_MODE: local        # tells the app it is running as a local vault
       REMOTE_VAULT_URL: http://remote-vault:8001  # where to push/pull
-      S3_BUCKET: ""            # no S3 in local dev — files stored on disk
+      S3_BUCKET: "pdm-docs-production"
       AWS_REGION: us-east-1
     depends_on:
       local-db:
         condition: service_healthy  # wait for postgres to be ready before starting
     volumes:
       - ./backend:/app         # live reload — code changes reflect instantly
+      - ~/.aws:/root/.aws:ro   # use local AWS credentials — no keys in this file
 
   # ── Remote Vault ────────────────────────────────────────────────────────────
   # This is the shared remote — like GitHub's servers
