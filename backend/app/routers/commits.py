@@ -24,6 +24,7 @@ async def create_commit(
     file: UploadFile = File(...),
     author: str = Form(...),
     message: str = Form(...),
+    branch_id: uuid.UUID | None = Form(None),
     db: Session = Depends(get_db),
 ):
     if not settings.S3_BUCKET:
@@ -43,13 +44,20 @@ async def create_commit(
 
     pdf_bytes = await file.read()
     content_hash = hashlib.sha256(pdf_bytes).hexdigest()
-    short_hash = content_hash[:8]
+    # include branch + doc in the short hash so the same file on different branches is unique
+    short_hash = hashlib.sha256(
+        f"{content_hash}-{branch_id or 'main'}-{doc_id}".encode()
+    ).hexdigest()[:8]
 
-    # find the most recent commit file for this document to detect change_type and check dedup
+    # find the most recent commit file for this document on the same branch (or main)
     prev_file = (
         db.query(CommitFile)
         .join(Commit)
-        .filter(Commit.repository_id == repo_id, CommitFile.document_id == doc_id)
+        .filter(
+            Commit.repository_id == repo_id,
+            CommitFile.document_id == doc_id,
+            Commit.branch_id == branch_id,
+        )
         .order_by(desc(Commit.timestamp))
         .first()
     )
@@ -57,7 +65,14 @@ async def create_commit(
     if prev_file and prev_file.content_hash == content_hash:
         raise HTTPException(status_code=400, detail="No changes detected — file is identical to the current version")
 
-    change_type = "added" if prev_file is None else "modified"
+    # change_type is based on whether the document has ever been committed anywhere
+    any_prior = (
+        db.query(CommitFile)
+        .join(Commit)
+        .filter(Commit.repository_id == repo_id, CommitFile.document_id == doc_id)
+        .first()
+    )
+    change_type = "added" if any_prior is None else "modified"
 
     s3_key_pdf = storage.upload_file(
         pdf_bytes,
@@ -75,7 +90,7 @@ async def create_commit(
 
     commit = Commit(
         repository_id=repo_id,
-        branch_id=None,
+        branch_id=branch_id,
         parent_id=parent.id if parent else None,
         author=author,
         message=message,
