@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -184,8 +185,8 @@ def execute_merge(
     )
 
     # build a stable hash for the merge commit from all document hashes combined
-    combined = "".join(cf.content_hash or "" for cf in sorted(branch_changes.values(), key=lambda x: str(x.document_id)))
-    import hashlib
+    sorted_files = sorted(branch_changes.values(), key=lambda x: str(x.document_id))
+    combined = "".join(cf.content_hash or "" for cf in sorted_files)
     merge_hash = hashlib.sha256(f"merge-{branch.name}-{combined}".encode()).hexdigest()[:8]
 
     merge_commit = Commit(
