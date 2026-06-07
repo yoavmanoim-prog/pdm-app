@@ -45,6 +45,8 @@ class CommitFile(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64))
     # "added", "modified", or "deleted"
     change_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # JSON diff of changed SVG elements vs previous version
+    pdf_diff: Mapped[dict | None] = mapped_column(JSON)
 
     commit: Mapped["Commit"] = relationship(back_populates="files")
     document: Mapped["Document"] = relationship(back_populates="commit_files")
