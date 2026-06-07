@@ -1,0 +1,197 @@
+import uuid
+import hashlib
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from app.database import get_db
+from app.models.repository import Repository
+from app.models.document import Document
+from app.models.commit import Commit, CommitFile
+from app.models.audit import AuditEvent
+from app.schemas.commits import CommitResponse
+from app.config import settings
+from app import storage
+
+router = APIRouter(prefix="/repos", tags=["commits"])
+
+
+# ── Step 12 — commit endpoint ──────────────────────────────────────────────────
+
+@router.post("/{repo_id}/commit", response_model=CommitResponse, status_code=201)
+async def create_commit(
+    repo_id: uuid.UUID,
+    doc_id: uuid.UUID = Form(...),
+    file: UploadFile = File(...),
+    author: str = Form(...),
+    message: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    if not settings.S3_BUCKET:
+        raise HTTPException(status_code=503, detail="S3 not configured — set S3_BUCKET env var")
+
+    repo = db.get(Repository, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    doc = db.get(Document, doc_id)
+    if not doc or doc.repository_id != repo_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    filename = file.filename or ""
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+
+    pdf_bytes = await file.read()
+    content_hash = hashlib.sha256(pdf_bytes).hexdigest()
+    short_hash = content_hash[:8]
+
+    # find the most recent commit file for this document to detect change_type and check dedup
+    prev_file = (
+        db.query(CommitFile)
+        .join(Commit)
+        .filter(Commit.repository_id == repo_id, CommitFile.document_id == doc_id)
+        .order_by(desc(Commit.timestamp))
+        .first()
+    )
+
+    if prev_file and prev_file.content_hash == content_hash:
+        raise HTTPException(status_code=400, detail="No changes detected — file is identical to the current version")
+
+    change_type = "added" if prev_file is None else "modified"
+
+    s3_key_pdf = storage.upload_file(
+        pdf_bytes,
+        f"{repo_id}/{doc_id}/{short_hash}.pdf",
+        "application/pdf",
+    )
+
+    # the parent commit is the most recent commit in this repo
+    parent = (
+        db.query(Commit)
+        .filter(Commit.repository_id == repo_id)
+        .order_by(desc(Commit.timestamp))
+        .first()
+    )
+
+    commit = Commit(
+        repository_id=repo_id,
+        branch_id=None,
+        parent_id=parent.id if parent else None,
+        author=author,
+        message=message,
+        short_hash=short_hash,
+        is_local=True,
+        diff_report={"document": doc.part_number, "change_type": change_type},
+        protocol_violations=[],
+    )
+    db.add(commit)
+    db.flush()
+
+    commit_file = CommitFile(
+        commit_id=commit.id,
+        document_id=doc_id,
+        s3_key_pdf=s3_key_pdf,
+        content_hash=content_hash,
+        change_type=change_type,
+    )
+    db.add(commit_file)
+
+    db.add(AuditEvent(
+        repository_id=repo_id,
+        actor=author,
+        action="commit",
+        entity_type="document",
+        entity_id=str(doc_id),
+        details={
+            "part_number": doc.part_number,
+            "commit_hash": short_hash,
+            "change_type": change_type,
+            "message": message,
+        },
+        is_breach=False,
+    ))
+
+    db.commit()
+    db.refresh(commit)
+    return commit
+
+
+# ── Step 13 — commit log ───────────────────────────────────────────────────────
+
+@router.get("/{repo_id}/log", response_model=list[CommitResponse])
+def get_log(repo_id: uuid.UUID, limit: int = 50, db: Session = Depends(get_db)):
+    repo = db.get(Repository, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    return (
+        db.query(Commit)
+        .filter(Commit.repository_id == repo_id)
+        .order_by(desc(Commit.timestamp))
+        .limit(limit)
+        .all()
+    )
+
+
+# ── Step 14 — commit diff ─────────────────────────────────────────────────────
+
+@router.get("/{repo_id}/commits/{short_hash}", response_model=CommitResponse)
+def get_commit(repo_id: uuid.UUID, short_hash: str, db: Session = Depends(get_db)):
+    commit = (
+        db.query(Commit)
+        .filter(Commit.repository_id == repo_id, Commit.short_hash == short_hash)
+        .first()
+    )
+    if not commit:
+        raise HTTPException(status_code=404, detail="Commit not found")
+    return commit
+
+
+@router.get("/{repo_id}/diff/{short_hash}")
+def get_diff(repo_id: uuid.UUID, short_hash: str, db: Session = Depends(get_db)):
+    """
+    Returns the changed files in a commit and presigned URLs for:
+    - current_pdf: the new version uploaded in this commit
+    - previous_pdf: the version from the parent commit (None for first commit)
+    UI uses these two URLs to show a side-by-side comparison.
+    """
+    commit = (
+        db.query(Commit)
+        .filter(Commit.repository_id == repo_id, Commit.short_hash == short_hash)
+        .first()
+    )
+    if not commit:
+        raise HTTPException(status_code=404, detail="Commit not found")
+
+    result = []
+    for cf in commit.files:
+        # get the previous version of this document by looking at the parent commit
+        prev_pdf_url = None
+        if commit.parent_id:
+            prev_cf = (
+                db.query(CommitFile)
+                .join(Commit)
+                .filter(
+                    Commit.repository_id == repo_id,
+                    CommitFile.document_id == cf.document_id,
+                    Commit.timestamp < commit.timestamp,
+                )
+                .order_by(desc(Commit.timestamp))
+                .first()
+            )
+            if prev_cf and prev_cf.s3_key_pdf:
+                prev_pdf_url = storage.generate_presigned_url(prev_cf.s3_key_pdf)
+
+        current_pdf_url = storage.generate_presigned_url(cf.s3_key_pdf) if cf.s3_key_pdf else None
+
+        doc = db.get(Document, cf.document_id)
+        result.append({
+            "document_id": str(cf.document_id),
+            "part_number": doc.part_number if doc else None,
+            "change_type": cf.change_type,
+            "content_hash": cf.content_hash,
+            "current_pdf_url": current_pdf_url,
+            "previous_pdf_url": prev_pdf_url,
+        })
+
+    return {"commit_hash": short_hash, "author": commit.author, "message": commit.message, "files": result}
