@@ -6,8 +6,8 @@
 set -e
 
 CLUSTER="pdm-prod-EKS"
-NODEGROUP="default"
-REGION="eu-north-1"
+NODEGROUP="default-20260531114832162400000001"
+REGION="us-east-1"
 
 echo "Scaling up EKS node group to 4 nodes..."
 aws eks update-nodegroup-config \
