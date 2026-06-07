@@ -26,7 +26,7 @@ spec:
       containers:
         - name: frontend
           # image tag comes from values.yaml, updated by CI on every push
-          image: "{{ .Values.frontend.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.frontend.repository }}:{{ .Values.frontend.tag | default .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 80
