@@ -8,6 +8,7 @@ from app.models.document import Document
 from app.models.commit import Commit, CommitFile
 from app.models.audit import AuditEvent
 from app.schemas.documents import DocumentCreate, DocumentResponse
+from app.config import settings
 from app import storage
 
 router = APIRouter(prefix="/repos", tags=["documents"])
@@ -75,6 +76,9 @@ async def upload_document(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = file.filename or ""
+    if not settings.S3_BUCKET:
+        raise HTTPException(status_code=503, detail="S3 not configured — set S3_BUCKET env var")
+
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
