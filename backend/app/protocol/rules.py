@@ -15,9 +15,17 @@ from app import storage
 # Valid revision sequence — I and O are skipped (look like 1 and 0)
 REVISION_SEQUENCE = list("ABCDEFGHJKLMNP")
 
-# Keywords that indicate a BOM table is present in the drawing
-# Any two of these found together = BOM table detected
-BOM_TABLE_KEYWORDS = {"ITEM", "QTY", "QUANTITY", "PART NO", "PART NUMBER", "DESCRIPTION", "DESC", "MATERIAL"}
+# Keywords that indicate a BOM table is present in the drawing.
+# Based on real factory drawing headers: Item, Quantity, Name, Part number, Description, Material, Revision
+# PDF extraction sometimes splits words (e.g. "QUANTI TY") so we check partial tokens too.
+# At least 3 of these must be found — a single word match is not enough.
+BOM_TABLE_KEYWORDS = {
+    "ITEM", "QUANTITY", "QUANTI",   # "QUANTI TY" split variant
+    "PART NUMBER", "PART NO",
+    "DESCRIPTION",
+    "MATERIAL",
+    "REVISION", "REVISI",           # "REVISI ON" split variant
+}
 
 
 def _next_expected(current_code: str) -> str | None:
@@ -106,7 +114,7 @@ class AssemblyHasBOMTableRule:
 
         # count how many BOM keywords appear in the drawing text
         found = {kw for kw in BOM_TABLE_KEYWORDS if kw in text}
-        if len(found) < 2:
+        if len(found) < 3:
             return [
                 f"Assembly drawing '{document.part_number}' does not appear to contain a BOM table. "
                 f"The drawing must include a parts list with columns such as "
