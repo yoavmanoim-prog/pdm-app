@@ -1,106 +1,128 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { listDocuments, createDocument, uploadDocument, createCommit, listBranches } from '../api'
 
-// Upload page — lets the user pick a PDF and fill in schematic details
 export default function Upload() {
-  const [form, setForm] = useState({
-    part_number: '',
-    vehicle_make: '',
-    model: '',
-    description: ''
-  })
-  const [file, setFile] = useState(null)   // the PDF file the user picks
-  const [status, setStatus] = useState(null) // success or error message
+  const { repoId } = useParams()
+  const navigate = useNavigate()
+  const [documents, setDocuments] = useState([])
+  const [branches, setBranches] = useState([])
+  const [mode, setMode] = useState('commit')     // 'commit' = update existing | 'new' = create + upload
+  const [form, setForm] = useState({ part_number: '', title: '', doc_type: 'detail' })
+  const [selectedDoc, setSelectedDoc] = useState('')
+  const [selectedBranch, setSelectedBranch] = useState('')
+  const [file, setFile] = useState(null)
+  const [author, setAuthor] = useState('')
+  const [message, setMessage] = useState('')
+  const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  // Update form state when the user types in any field
-  const handleChange = e => setForm({ ...form, [e.target.name]: e.target.value })
+  useEffect(() => {
+    Promise.all([listDocuments(repoId), listBranches(repoId)]).then(([d, b]) => {
+      setDocuments(d)
+      setBranches(b.filter(b => b.status === 'open'))
+    })
+  }, [repoId])
 
   const handleSubmit = async e => {
     e.preventDefault()
-    if (!file) return alert('Please select a PDF file')
-
-    // Build a FormData object — this is how browsers send files to a server
-    const data = new FormData()
-    data.append('file', file)
-    data.append('part_number', form.part_number)
-    data.append('vehicle_make', form.vehicle_make)
-    data.append('model', form.model)
-    data.append('description', form.description)
-
+    if (!file) return alert('Select a PDF file')
+    if (!author.trim()) return alert('Enter your name')
     setLoading(true)
     setStatus(null)
-
     try {
-      const res = await fetch('/api/schematics/upload', {
-        method: 'POST',
-        body: data  // send the form data (including the file) to the backend
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || 'Upload failed')
+      if (mode === 'new') {
+        // create document metadata first, then upload the initial PDF
+        const doc = await createDocument(repoId, form)
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('author', author)
+        fd.append('message', message || 'Initial upload')
+        await uploadDocument(repoId, doc.id, fd)
+        setStatus({ type: 'success', message: `Document ${form.part_number} created and uploaded.` })
+      } else {
+        // commit a new version of an existing document
+        const fd = new FormData()
+        fd.append('doc_id', selectedDoc)
+        fd.append('file', file)
+        fd.append('author', author)
+        fd.append('message', message)
+        if (selectedBranch) fd.append('branch_id', selectedBranch)
+        await createCommit(repoId, fd)
+        setStatus({ type: 'success', message: 'Commit created successfully.' })
       }
-      setStatus({ type: 'success', message: 'Schematic uploaded successfully!' })
-      setForm({ part_number: '', vehicle_make: '', model: '', description: '' })
-      setFile(null)
-    } catch (err) {
-      setStatus({ type: 'error', message: err.message })
+      setTimeout(() => navigate(`/repos/${repoId}`), 1200)
+    } catch (e) {
+      setStatus({ type: 'error', message: e.message })
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div>
-      <h2>Upload Schematic</h2>
+    <div style={{ maxWidth: '560px' }}>
+      <Link to={`/repos/${repoId}`} style={{ color: '#888', fontSize: '13px' }}>← Back to repository</Link>
+      <h2 style={{ margin: '8px 0 20px' }}>Upload Drawing</h2>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '500px' }}>
+      {/* Mode toggle */}
+      <div style={{ display: 'flex', gap: '0', marginBottom: '20px', border: '1px solid #ddd', borderRadius: '4px', overflow: 'hidden' }}>
+        <button onClick={() => setMode('commit')} style={{ flex: 1, padding: '8px', border: 'none', background: mode === 'commit' ? '#1a1a2e' : '#fff', color: mode === 'commit' ? '#fff' : '#333', cursor: 'pointer' }}>
+          Update Existing Drawing
+        </button>
+        <button onClick={() => setMode('new')} style={{ flex: 1, padding: '8px', border: 'none', background: mode === 'new' ? '#1a1a2e' : '#fff', color: mode === 'new' ? '#fff' : '#333', cursor: 'pointer' }}>
+          New Drawing
+        </button>
+      </div>
 
-        {/* Part number is required — used as the identifier */}
-        <input
-          name="part_number"
-          placeholder="Part Number *"
-          value={form.part_number}
-          onChange={handleChange}
-          required
-          style={{ padding: '8px' }}
-        />
-        <input
-          name="vehicle_make"
-          placeholder="Vehicle Make (e.g. Toyota)"
-          value={form.vehicle_make}
-          onChange={handleChange}
-          style={{ padding: '8px' }}
-        />
-        <input
-          name="model"
-          placeholder="Model (e.g. Corolla)"
-          value={form.model}
-          onChange={handleChange}
-          style={{ padding: '8px' }}
-        />
-        <textarea
-          name="description"
-          placeholder="Description"
-          value={form.description}
-          onChange={handleChange}
-          rows={3}
-          style={{ padding: '8px' }}
-        />
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-        {/* File picker — only accepts PDF files */}
-        <input
-          type="file"
-          accept=".pdf"
-          onChange={e => setFile(e.target.files[0])}
-          required
-        />
+        {mode === 'commit' ? (
+          <>
+            <label style={labelStyle}>Document</label>
+            <select value={selectedDoc} onChange={e => setSelectedDoc(e.target.value)} required style={inputStyle}>
+              <option value="">Select document…</option>
+              {documents.map(d => <option key={d.id} value={d.id}>{d.part_number} — {d.title}</option>)}
+            </select>
 
-        <button type="submit" disabled={loading} style={{ padding: '10px', cursor: 'pointer' }}>
-          {loading ? 'Uploading...' : 'Upload'}
+            <label style={labelStyle}>Branch (optional — leave blank for main)</label>
+            <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} style={inputStyle}>
+              <option value="">Main</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </>
+        ) : (
+          <>
+            <label style={labelStyle}>Part Number</label>
+            <input required placeholder="e.g. EVC-SA-8000" value={form.part_number}
+              onChange={e => setForm({ ...form, part_number: e.target.value })} style={inputStyle} />
+            <label style={labelStyle}>Title</label>
+            <input required placeholder="e.g. Alternator Bracket Assembly" value={form.title}
+              onChange={e => setForm({ ...form, title: e.target.value })} style={inputStyle} />
+            <label style={labelStyle}>Type</label>
+            <select value={form.doc_type} onChange={e => setForm({ ...form, doc_type: e.target.value })} style={inputStyle}>
+              <option value="detail">Detail (single part)</option>
+              <option value="assembly">Assembly (contains other parts)</option>
+            </select>
+          </>
+        )}
+
+        <label style={labelStyle}>PDF Drawing *</label>
+        <input type="file" accept=".pdf" required onChange={e => setFile(e.target.files[0])} style={inputStyle} />
+
+        <label style={labelStyle}>Your Name *</label>
+        <input required placeholder="e.g. Dan Manoim" value={author}
+          onChange={e => setAuthor(e.target.value)} style={inputStyle} />
+
+        <label style={labelStyle}>Commit Message</label>
+        <input placeholder={mode === 'new' ? 'Initial upload' : 'Describe what changed'}
+          value={message} onChange={e => setMessage(e.target.value)} style={inputStyle} />
+
+        <button type="submit" disabled={loading}
+          style={{ padding: '10px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', marginTop: '4px' }}>
+          {loading ? 'Uploading…' : mode === 'new' ? 'Create & Upload' : 'Commit Drawing'}
         </button>
       </form>
 
-      {/* Show success or error message after submission */}
       {status && (
         <p style={{ marginTop: '16px', color: status.type === 'success' ? 'green' : 'red' }}>
           {status.message}
@@ -109,3 +131,6 @@ export default function Upload() {
     </div>
   )
 }
+
+const inputStyle = { padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px' }
+const labelStyle = { fontSize: '13px', color: '#555', marginBottom: '-6px' }
