@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 from pydantic import BaseModel
 
 
@@ -21,3 +22,9 @@ class RepositoryResponse(BaseModel):
     class Config:
         # allows Pydantic to read from SQLAlchemy model attributes directly
         from_attributes = True
+
+
+class RepositoryListResponse(RepositoryResponse):
+    # extends the base response with runtime-computed statistics
+    document_count: int = 0                  # total documents in this repo
+    latest_commit: dict[str, Any] | None = None  # most recent commit info, or None if no commits

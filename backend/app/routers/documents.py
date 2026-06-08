@@ -62,6 +62,61 @@ def get_document(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = Depends(ge
     return doc
 
 
+@router.get("/{repo_id}/documents/{doc_id}/commits")
+def get_document_commits(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = Depends(get_db)):
+    """
+    Returns every commit that touched this document, newest first.
+    Each entry includes a presigned URL for the PDF at that version and for
+    the version immediately before it — so the viewer can show old vs new.
+    """
+    doc = db.get(Document, doc_id)
+    if not doc or doc.repository_id != repo_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # fetch all CommitFile rows for this document, ordered newest-first via the parent Commit
+    from sqlalchemy import desc as _desc
+    commit_files = (
+        db.query(CommitFile)
+        .join(Commit)
+        .filter(
+            Commit.repository_id == repo_id,
+            CommitFile.document_id == doc_id,
+        )
+        .order_by(_desc(Commit.timestamp))
+        .all()
+    )
+
+    versions = []
+    for i, cf in enumerate(commit_files):
+        commit = cf.commit
+        current_url = storage.generate_presigned_url(cf.s3_key_pdf) if cf.s3_key_pdf else None
+
+        # the "previous" version is the next item in the list (we are sorted newest-first)
+        prev_url = None
+        if i + 1 < len(commit_files):
+            prev_cf = commit_files[i + 1]
+            if prev_cf.s3_key_pdf:
+                prev_url = storage.generate_presigned_url(prev_cf.s3_key_pdf)
+
+        versions.append({
+            "commit_hash": commit.short_hash,
+            "author": commit.author,
+            "message": commit.message,
+            "timestamp": commit.timestamp.isoformat(),
+            "change_type": cf.change_type,       # "added" or "modified"
+            "current_pdf_url": current_url,      # presigned URL for this version
+            "previous_pdf_url": prev_url,        # presigned URL for the version before this one
+        })
+
+    return {
+        "document_id": str(doc_id),
+        "part_number": doc.part_number,
+        "title": doc.title,
+        "doc_type": doc.doc_type,
+        "versions": versions,
+    }
+
+
 @router.post("/{repo_id}/documents/{doc_id}/upload")
 async def upload_document(
     repo_id: uuid.UUID,
