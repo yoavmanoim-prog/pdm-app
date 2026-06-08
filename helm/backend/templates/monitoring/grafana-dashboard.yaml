@@ -1,0 +1,14 @@
+# Grafana's sidecar watches for ConfigMaps labelled grafana_dashboard: "1"
+# in any namespace (searchNamespace: ALL is set in the kube-prometheus-stack values).
+# When it finds one, it loads the JSON as a dashboard automatically —
+# no manual import needed after every deploy.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pdm-backend-grafana-dashboard
+  labels:
+    app: pdm-backend
+    grafana_dashboard: "1"   # this label is what the Grafana sidecar watches for
+data:
+  pdm-backend.json: |
+    {{- .Files.Get "grafana/pdm-backend.json" | nindent 4 }}
