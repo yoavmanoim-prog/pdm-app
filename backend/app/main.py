@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.config import settings
 from app.database import init_db
-from app.routers import repositories, documents, commits, branches, tree
+from app.routers import repositories, documents, commits, branches, tree, sync, vault_incoming
 
 
 @asynccontextmanager
@@ -27,6 +27,8 @@ app.include_router(documents.router)
 app.include_router(commits.router)
 app.include_router(branches.router)
 app.include_router(tree.router)
+app.include_router(sync.router)
+app.include_router(vault_incoming.router)
 
 
 @app.get("/")
