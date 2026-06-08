@@ -11,7 +11,7 @@ service:
 
 ingress:
   enabled: true
-  host: pdm.example.com
+  host: pdm.52.202.248.204.nip.io
 
 resources:
   requests:

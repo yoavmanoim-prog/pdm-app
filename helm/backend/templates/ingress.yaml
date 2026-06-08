@@ -11,15 +11,9 @@ spec:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
-          # /api/ goes to the FastAPI backend — handles all data and file operations
-          - path: /api/
-            pathType: Prefix
-            backend:
-              service:
-                name: pdm-backend
-                port:
-                  number: {{ .Values.service.port }}
-          # / (everything else) goes to the React frontend
+          # all traffic goes to the frontend nginx, which proxies /api/ to the
+          # backend and strips the prefix (proxy_pass with trailing slash).
+          # routing /api/ directly to the backend bypasses the strip and causes 404.
           - path: /
             pathType: Prefix
             backend:
