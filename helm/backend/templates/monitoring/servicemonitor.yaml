@@ -1,18 +1,18 @@
-# ServiceMonitor tells the Prometheus operator to scrape /metrics on this service.
+# ServiceMonitor tells the Prometheus operator to scrape /metrics on the backend service.
 # The label "release: kube-prometheus-stack" must match the Prometheus selector
 # so the operator picks this monitor up automatically.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ include "backend.fullname" . }}
+  name: pdm-backend
   labels:
-    {{- include "backend.labels" . | nindent 4 }}
+    app: pdm-backend
     release: kube-prometheus-stack   # must match prometheusSelector in the stack values
 spec:
   selector:
     matchLabels:
-      {{- include "backend.selectorLabels" . | nindent 6 }}
+      app: pdm-backend
   endpoints:
     - port: http
-      path: /metrics        # the endpoint prometheus-fastapi-instrumentator exposes
-      interval: 15s         # scrape every 15 seconds
+      path: /metrics        # endpoint prometheus-fastapi-instrumentator exposes
+      interval: 15s
