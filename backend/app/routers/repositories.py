@@ -1,9 +1,12 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from app.database import get_db
 from app.models.repository import Repository
-from app.schemas.repositories import RepositoryCreate, RepositoryResponse
+from app.models.document import Document
+from app.models.commit import Commit
+from app.schemas.repositories import RepositoryCreate, RepositoryResponse, RepositoryListResponse
 
 # all routes in this file are prefixed with /repos
 router = APIRouter(prefix="/repos", tags=["repositories"])
@@ -27,10 +30,37 @@ def create_repository(body: RepositoryCreate, db: Session = Depends(get_db)):
     return repo
 
 
-@router.get("/", response_model=list[RepositoryResponse])
+@router.get("/", response_model=list[RepositoryListResponse])
 def list_repositories(db: Session = Depends(get_db)):
-    # return all repositories ordered by creation time, newest first
-    return db.query(Repository).order_by(Repository.created_at.desc()).all()
+    repos = db.query(Repository).order_by(Repository.created_at.desc()).all()
+    result = []
+    for repo in repos:
+        # count how many documents belong to this repository
+        doc_count = db.query(Document).filter(Document.repository_id == repo.id).count()
+
+        # find the most recent commit — None if the repo has never been committed to
+        latest = (
+            db.query(Commit)
+            .filter(Commit.repository_id == repo.id)
+            .order_by(desc(Commit.timestamp))
+            .first()
+        )
+
+        result.append(RepositoryListResponse(
+            id=repo.id,
+            name=repo.name,
+            description=repo.description,
+            remote_url=repo.remote_url,
+            created_at=repo.created_at,
+            document_count=doc_count,
+            latest_commit={
+                "hash": latest.short_hash,
+                "author": latest.author,
+                "message": latest.message,
+                "timestamp": latest.timestamp.isoformat(),
+            } if latest else None,
+        ))
+    return result
 
 
 @router.get("/{repo_id}", response_model=RepositoryResponse)

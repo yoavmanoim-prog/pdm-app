@@ -84,12 +84,14 @@ jobs:
         run: |
           IMAGE=$ECR_REGISTRY/$ECR_BACKEND:${{ steps.meta.outputs.tag }}
           docker build \
+            --platform linux/amd64 \
             --cache-from $ECR_REGISTRY/$ECR_BACKEND:latest \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
             -t $IMAGE ./backend &
           BACKEND_PID=$!
 
           docker build \
+            --platform linux/amd64 \
             --cache-from $ECR_REGISTRY/$ECR_FRONTEND:latest \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
             -t $ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }} ./frontend &
@@ -137,13 +139,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on failure
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v2.1.0
         with:
-          slack-message: |
-            :x: Build failed on *${{ github.repository }}*
-            Branch: `${{ github.ref_name }}`
-            Commit: `${{ github.sha }}`
-            <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: Build failed on *${{ github.repository }}*\nBranch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+            }

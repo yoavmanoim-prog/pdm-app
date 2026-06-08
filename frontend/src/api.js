@@ -1,0 +1,63 @@
+// All API calls go through this file.
+// /api/ is proxied to the backend (dev: vite proxy, prod: nginx)
+
+const BASE = '/api'
+
+async function req(method, path, body) {
+  const opts = { method, headers: {} }
+  if (body && !(body instanceof FormData)) {
+    opts.headers['Content-Type'] = 'application/json'
+    opts.body = JSON.stringify(body)
+  } else if (body) {
+    opts.body = body  // FormData — browser sets Content-Type automatically
+  }
+  const res = await fetch(`${BASE}${path}`, opts)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail))
+  }
+  return res.status === 204 ? null : res.json()
+}
+
+// Repositories
+export const listRepos = () => req('GET', '/repos/')
+export const createRepo = body => req('POST', '/repos/', body)
+export const getRepo = id => req('GET', `/repos/${id}`)
+
+// Documents
+export const listDocuments = repoId => req('GET', `/repos/${repoId}/documents/`)
+export const createDocument = (repoId, body) => req('POST', `/repos/${repoId}/documents/`, body)
+export const getDocument = (repoId, docId) => req('GET', `/repos/${repoId}/documents/${docId}`)
+export const uploadDocument = (repoId, docId, formData) =>
+  req('POST', `/repos/${repoId}/documents/${docId}/upload`, formData)
+// returns all versions of a document with presigned PDF URLs for each version and the one before it
+export const getDocumentCommits = (repoId, docId) =>
+  req('GET', `/repos/${repoId}/documents/${docId}/commits`)
+
+// Commits
+export const getLog = (repoId, limit = 50) => req('GET', `/repos/${repoId}/log?limit=${limit}`)
+export const getDiff = (repoId, hash) => req('GET', `/repos/${repoId}/diff/${hash}`)
+export const createCommit = (repoId, formData) => req('POST', `/repos/${repoId}/commit`, formData)
+
+// Branches
+export const listBranches = repoId => req('GET', `/repos/${repoId}/branches/`)
+export const createBranch = (repoId, body) => req('POST', `/repos/${repoId}/branches/`, body)
+export const getMergeRequest = (repoId, branchId) =>
+  req('POST', `/repos/${repoId}/branches/${branchId}/merge-request`)
+export const executeMerge = (repoId, branchId, author) =>
+  req('POST', `/repos/${repoId}/branches/${branchId}/merge?author=${encodeURIComponent(author)}`)
+
+// Product tree
+export const getTree = repoId => req('GET', `/repos/${repoId}/tree`)
+export const validateTree = repoId => req('GET', `/repos/${repoId}/tree/validate`)
+
+// Sync
+export const syncStatus = repoId => req('GET', `/sync/status/${repoId}`)
+export const push = repoId => req('POST', `/sync/push/${repoId}`)
+export const pull = repoId => req('POST', `/sync/pull/${repoId}`)
+
+// Audit
+export const getAudit = (repoId, params = '') => req('GET', `/repos/${repoId}/audit${params}`)
+export const getBreaches = repoId => req('GET', `/repos/${repoId}/audit/breaches`)
+export const getDocumentHistory = (repoId, docId) =>
+  req('GET', `/repos/${repoId}/documents/${docId}/history`)

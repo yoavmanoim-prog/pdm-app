@@ -19,3 +19,6 @@ pymupdf==1.27.2
 # data validation and settings management
 pydantic==2.7.1
 pydantic-settings==2.2.1  # reads config from environment variables and .env files
+
+# Prometheus — exposes /metrics so Prometheus can scrape request rate, latency, error rate
+prometheus-fastapi-instrumentator==6.1.0  # 8.x pulls starlette 1.x which breaks fastapi 0.111
