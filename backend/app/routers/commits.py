@@ -10,6 +10,7 @@ from app.models.commit import Commit, CommitFile
 from app.models.audit import AuditEvent
 from app.schemas.commits import CommitResponse
 from app.config import settings
+from app.protocol.engine import run_commit_checks
 from app import storage
 
 router = APIRouter(prefix="/repos", tags=["commits"])
@@ -33,10 +34,20 @@ async def create_commit(
     repo = db.get(Repository, repo_id)
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
 
     doc = db.get(Document, doc_id)
     if not doc or doc.repository_id != repo_id:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    # block commits to released documents
+    check = run_commit_checks(doc, db)
+    if not check["passed"]:
+        raise HTTPException(status_code=422, detail={
+            "message": "Commit blocked by protocol",
+            "violations": check["violations"],
+        })
 
     filename = file.filename or ""
     if not filename.lower().endswith(".pdf"):
