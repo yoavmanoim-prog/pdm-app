@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
 from app.config import settings
 from app.database import init_db
 from app.routers import repositories, documents, commits, branches, tree, sync, vault_incoming, revisions, audit
@@ -20,6 +21,10 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+
+# expose GET /metrics — Prometheus scrapes this endpoint every 15 s
+# instruments every request automatically: count, latency histogram, status codes
+Instrumentator().instrument(app).expose(app)
 
 # register all routers — each router handles a group of related endpoints
 app.include_router(repositories.router)
