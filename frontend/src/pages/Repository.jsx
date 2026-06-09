@@ -1,21 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getRepo, getLog, listDocuments, listBranches, getTree, validateTree, syncStatus, push, pull, getDiff } from '../api'
+import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
+import { RepoProvider, useRepo } from '../context/RepoContext'
 
-export default function Repository() {
+// Inner component — has access to RepoContext
+function RepositoryInner() {
   const { repoId } = useParams()
-  const [repo, setRepo] = useState(null)
-  const [tab, setTab] = useState('commits')
-  const [commits, setCommits] = useState([])
+  const { version, refresh } = useRepo()
+
+  const [repo, setRepo]           = useState(null)
+  const [tab, setTab]             = useState('commits')
+  const [commits, setCommits]     = useState([])
   const [documents, setDocuments] = useState([])
-  const [branches, setBranches] = useState([])
-  const [tree, setTree] = useState([])
+  const [branches, setBranches]   = useState([])
+  const [tree, setTree]           = useState([])
   const [validation, setValidation] = useState(null)
-  const [sync, setSync] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [sync, setSync]           = useState(null)
+  const [loading, setLoading]     = useState(true)
   const [selectedDiff, setSelectedDiff] = useState(null)
 
+  // re-runs whenever version increments — triggered by any action anywhere on the page
   useEffect(() => {
     Promise.all([
       getRepo(repoId),
@@ -29,14 +34,14 @@ export default function Repository() {
       setRepo(r); setCommits(c); setDocuments(d)
       setBranches(b); setTree(t); setValidation(v); setSync(s)
     }).finally(() => setLoading(false))
-  }, [repoId])
+  }, [repoId, version])
 
   const handlePush = async () => {
-    try { const r = await push(repoId); alert(`Pushed ${r.pushed} commits`) }
+    try { const r = await push(repoId); alert(`Pushed ${r.pushed} commits`); refresh() }
     catch (e) { alert(e.message) }
   }
   const handlePull = async () => {
-    try { const r = await pull(repoId); alert(`Pulled ${r.pulled} commits`) }
+    try { const r = await pull(repoId); alert(`Pulled ${r.pulled} commits`); refresh() }
     catch (e) { alert(e.message) }
   }
 
@@ -103,7 +108,6 @@ export default function Repository() {
           </div>
           {documents.length === 0 && <p style={{ color: '#888' }}>No documents yet.</p>}
           {documents.map(d => (
-            // each row is a link to the document viewer — click to see PDF versions and diff
             <Link key={d.id} to={`/repos/${repoId}/documents/${d.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
               <div style={{ ...rowStyle, cursor: 'pointer' }}>
                 <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
@@ -117,37 +121,18 @@ export default function Repository() {
       )}
 
       {/* Branches tab */}
-      {tab === 'branches' && (
-        <div>
-          {branches.length === 0 && <p style={{ color: '#888' }}>No branches.</p>}
-          {branches.map(b => (
-            <div key={b.id} style={rowStyle}>
-              <span style={{ flex: 1 }}>{b.name}</span>
-              <span style={{ fontSize: '12px', marginRight: '12px', color: b.status === 'open' ? 'green' : '#888' }}>{b.status}</span>
-              <span style={{ fontSize: '12px', color: '#888' }}>by {b.created_by} · {new Date(b.created_at).toLocaleDateString()}</span>
-              {b.status === 'open' && (
-                <Link to={`/repos/${repoId}/branches/${b.id}`}
-                  style={{ ...btnSmall, textDecoration: 'none', marginLeft: '8px' }}>
-                  Merge Request
-                </Link>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {tab === 'branches' && <BranchesTab repoId={repoId} branches={branches} />}
 
       {/* Tree tab */}
       {tab === 'tree' && (
         <div>
-          {tree.length === 0 && <p style={{ color: '#888' }}>No product tree yet. Add documents and link them in a BOM.</p>}
+          {tree.length === 0 && <p style={{ color: '#888' }}>No product tree yet.</p>}
           {tree.map(node => <TreeNode key={node.id} node={node} depth={0} />)}
         </div>
       )}
 
-      {/* Working Dir tab — shows files from the WATCH_DIR mounted in the local vault */}
-      {tab === 'working dir' && (
-        <WorkingDirectory repoId={repoId} />
-      )}
+      {/* Working Dir tab */}
+      {tab === 'working dir' && <WorkingDirectory repoId={repoId} />}
 
       {/* Validate tab */}
       {tab === 'validate' && validation && (
@@ -171,6 +156,66 @@ export default function Repository() {
         </div>
       )}
     </div>
+  )
+}
+
+// Branches tab extracted so it can show a create-branch form with refresh on submit
+function BranchesTab({ repoId, branches }) {
+  const { refresh } = useRepo()
+  const [name, setName]     = useState('')
+  const [author, setAuthor] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [err, setErr]       = useState(null)
+
+  const handleCreate = async e => {
+    e.preventDefault()
+    if (!name.trim() || !author.trim()) return setErr('Enter branch name and your name')
+    setCreating(true); setErr(null)
+    try {
+      await createBranch(repoId, { name, created_by: author })
+      setName(''); setAuthor('')
+      refresh()  // all tabs update instantly
+    } catch (e) { setErr(e.message) }
+    finally { setCreating(false) }
+  }
+
+  return (
+    <div>
+      <form onSubmit={handleCreate} style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <input required placeholder="Branch name" value={name} onChange={e => setName(e.target.value)}
+          style={inputStyle} />
+        <input required placeholder="Your name" value={author} onChange={e => setAuthor(e.target.value)}
+          style={inputStyle} />
+        <button type="submit" disabled={creating} style={btnSmall}>
+          {creating ? 'Creating…' : '+ New Branch'}
+        </button>
+        {err && <span style={{ color: 'red', fontSize: '13px', alignSelf: 'center' }}>{err}</span>}
+      </form>
+
+      {branches.length === 0 && <p style={{ color: '#888' }}>No branches yet.</p>}
+      {branches.map(b => (
+        <div key={b.id} style={rowStyle}>
+          <span style={{ flex: 1 }}>{b.name}</span>
+          <span style={{ fontSize: '12px', marginRight: '12px', color: b.status === 'open' ? 'green' : '#888' }}>{b.status}</span>
+          <span style={{ fontSize: '12px', color: '#888' }}>by {b.created_by} · {new Date(b.created_at).toLocaleDateString()}</span>
+          {b.status === 'open' && (
+            <Link to={`/repos/${repoId}/branches/${b.id}`}
+              style={{ ...btnSmall, textDecoration: 'none', marginLeft: '8px' }}>
+              Merge Request
+            </Link>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// exported wrapper — provides the context
+export default function Repository() {
+  return (
+    <RepoProvider>
+      <RepositoryInner />
+    </RepoProvider>
   )
 }
 
@@ -203,7 +248,6 @@ function Stat({ label, value, color = '#333' }) {
 function DiffPanel({ repoId, hash }) {
   const [diff, setDiff] = useState(null)
   useEffect(() => {
-    // getDiff is already a static import — no need for dynamic import here
     getDiff(repoId, hash).then(setDiff).catch(() => {})
   }, [repoId, hash])
   if (!diff) return <div style={{ padding: '8px', color: '#888' }}>Loading diff…</div>
@@ -213,14 +257,8 @@ function DiffPanel({ repoId, hash }) {
         <div key={i} style={{ marginBottom: '8px' }}>
           <strong style={{ fontSize: '13px' }}>{f.part_number} ({f.change_type})</strong>
           <div style={{ display: 'flex', gap: '12px', marginTop: '6px' }}>
-            {f.previous_pdf_url && (
-              <a href={f.previous_pdf_url} target="_blank" rel="noreferrer"
-                style={{ fontSize: '12px', color: '#666' }}>Previous PDF ↗</a>
-            )}
-            {f.current_pdf_url && (
-              <a href={f.current_pdf_url} target="_blank" rel="noreferrer"
-                style={{ fontSize: '12px', color: '#1a1a2e' }}>Current PDF ↗</a>
-            )}
+            {f.previous_pdf_url && <a href={f.previous_pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#666' }}>Previous PDF ↗</a>}
+            {f.current_pdf_url && <a href={f.current_pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#1a1a2e' }}>Current PDF ↗</a>}
           </div>
         </div>
       ))}
@@ -230,3 +268,4 @@ function DiffPanel({ repoId, hash }) {
 
 const btnSmall = { padding: '5px 12px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }
 const rowStyle = { display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #eee', borderRadius: '4px', marginBottom: '6px' }
+const inputStyle = { padding: '6px 10px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '13px' }

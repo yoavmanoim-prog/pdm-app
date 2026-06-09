@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { getWatchStatus, watchCommit, watchPreviewUrl } from '../api'
+import { useRepo } from '../context/RepoContext'
 
 const badge = {
   committed: { background: '#d4edda', color: '#155724', label: 'committed' },
@@ -8,22 +9,23 @@ const badge = {
 }
 
 export default function WorkingDirectory({ repoId }) {
+  const { refresh } = useRepo()
   const [files, setFiles]       = useState([])
   const [watchDir, setWatchDir] = useState('')
   const [error, setError]       = useState(null)
   const [committing, setCommitting] = useState(null)
-  const [preview, setPreview]   = useState(null)   // filename being previewed
+  const [preview, setPreview]   = useState(null)
   const intervalRef = useRef(null)
 
-  const refresh = () => {
+  const localRefresh = () => {
     getWatchStatus(repoId)
       .then(d => { setFiles(d.files); setWatchDir(d.watch_dir); setError(null) })
       .catch(e => setError(e.message))
   }
 
   useEffect(() => {
-    refresh()
-    intervalRef.current = setInterval(refresh, 5000)
+    localRefresh()
+    intervalRef.current = setInterval(localRefresh, 5000)
     return () => clearInterval(intervalRef.current)
   }, [repoId])
 
@@ -101,7 +103,7 @@ export default function WorkingDirectory({ repoId }) {
           </div>
 
           {committing === f.filename && (
-            <CommitForm repoId={repoId} file={f} onDone={() => { setCommitting(null); refresh() }} />
+            <CommitForm repoId={repoId} file={f} onDone={() => { setCommitting(null); localRefresh(); refresh() }} />
           )}
         </div>
       ))}
