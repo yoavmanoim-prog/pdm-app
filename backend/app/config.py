@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     # AWS region — boto3 also reads this automatically
     AWS_REGION: str = "us-east-1"
 
+    # path inside the container that is mounted from the engineer's local drawings folder
+    # e.g. set WATCH_DIR=/watch and mount ~/Desktop/drawings:/watch in docker-compose
+    # when empty, the working-directory feature is disabled
+    WATCH_DIR: str = ""
+
     class Config:
         # pydantic-settings reads from .env file if it exists, otherwise from env vars
         env_file = ".env"

@@ -61,3 +61,8 @@ export const getAudit = (repoId, params = '') => req('GET', `/repos/${repoId}/au
 export const getBreaches = repoId => req('GET', `/repos/${repoId}/audit/breaches`)
 export const getDocumentHistory = (repoId, docId) =>
   req('GET', `/repos/${repoId}/documents/${docId}/history`)
+
+// Working directory — scans the WATCH_DIR mounted in the local vault container
+export const getWatchStatus = repoId => req('GET', `/repos/${repoId}/watch/status`)
+export const watchCommit = (repoId, formData) =>
+  req('POST', `/repos/${repoId}/watch/commit`, formData)
