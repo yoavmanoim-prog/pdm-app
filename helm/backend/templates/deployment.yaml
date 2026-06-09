@@ -54,6 +54,10 @@ spec:
               value: {{ .Values.aws.s3Bucket }}
             - name: AWS_REGION
               value: {{ .Values.aws.region }}
+            - name: VAULT_MODE
+              value: {{ .Values.vaultMode }}
+            - name: CORS_ORIGINS
+              value: {{ .Values.corsOrigins | quote }}
           livenessProbe:
             httpGet:
               path: /health

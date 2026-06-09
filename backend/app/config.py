@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # when empty, the working-directory feature is disabled
     WATCH_DIR: str = ""
 
+    # comma-separated list of origins allowed to call this API cross-origin.
+    # add http://localhost:3000 so the local frontend can call the remote vault.
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+
     class Config:
         # pydantic-settings reads from .env file if it exists, otherwise from env vars
         env_file = ".env"
