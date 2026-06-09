@@ -1,0 +1,88 @@
+import { useEffect, useState } from 'react'
+import { browseWatch } from '../api'
+
+export default function FolderPicker({ value, onChange }) {
+  const [open, setOpen]     = useState(false)
+  const [browsing, setBrowsing] = useState('')   // current path in browser
+  const [dirs, setDirs]     = useState([])
+  const [parent, setParent] = useState(null)
+  const [error, setError]   = useState(null)
+
+  const load = (path) => {
+    setError(null)
+    browseWatch(path)
+      .then(d => { setDirs(d.dirs); setBrowsing(d.current); setParent(d.parent) })
+      .catch(e => setError(e.message))
+  }
+
+  useEffect(() => { if (open) load('') }, [open])
+
+  const select = (path) => {
+    onChange(path)
+    setOpen(false)
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', gap: '6px' }}>
+        <input
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="DevOps/projects/drawings"
+          style={{ flex: 1, padding: '7px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '13px' }}
+        />
+        <button type="button" onClick={() => setOpen(!open)}
+          style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', background: '#f5f5f5', fontSize: '13px' }}>
+          Browse
+        </button>
+      </div>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '36px', left: 0, right: 0, zIndex: 200,
+          background: '#fff', border: '1px solid #ddd', borderRadius: '6px',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: '260px', overflowY: 'auto',
+        }}>
+          {/* header */}
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid #eee', fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between' }}>
+            <span>/{browsing || 'home'}</span>
+            <button type="button" onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#aaa' }}>✕</button>
+          </div>
+
+          {error && <div style={{ padding: '10px 12px', color: '#c00', fontSize: '13px' }}>{error}</div>}
+
+          {/* up button */}
+          {parent !== null && parent !== undefined && (
+            <div onClick={() => load(parent)} style={rowStyle}>
+              <span style={{ color: '#888' }}>← ..</span>
+            </div>
+          )}
+
+          {/* select current dir */}
+          {browsing && (
+            <div onClick={() => select(browsing)} style={{ ...rowStyle, color: '#1a1a2e', fontWeight: 600 }}>
+              ✓ Select this folder
+            </div>
+          )}
+
+          {dirs.length === 0 && !error && (
+            <div style={{ padding: '10px 12px', color: '#aaa', fontSize: '13px' }}>No subfolders here</div>
+          )}
+
+          {dirs.map(d => (
+            <div key={d.path} style={rowStyle} onClick={() => load(d.path)}>
+              📁 {d.name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const rowStyle = {
+  padding: '9px 14px', cursor: 'pointer', fontSize: '13px',
+  borderBottom: '1px solid #f5f5f5',
+  transition: 'background 0.1s',
+  onMouseEnter: e => e.target.style.background = '#f5f5f5',
+}

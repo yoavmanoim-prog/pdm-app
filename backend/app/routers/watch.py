@@ -8,7 +8,7 @@ import hashlib
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Query
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,7 @@ from app.models.commit import Commit, CommitFile
 from app.models.document import Document
 from app.models.repository import Repository
 
-router = APIRouter(prefix="/repos", tags=["watch"])
+router = APIRouter(tags=["watch"])
 
 
 def _resolve(watch_path: str) -> Path:
@@ -49,6 +49,30 @@ def _latest_hash(doc_id: uuid.UUID, repo_id: uuid.UUID, db: Session) -> str | No
     return cf.content_hash if cf else None
 
 
+@router.get("/watch/browse")
+def browse(path: str = Query("", description="Relative path to browse (empty = root)")):
+    """List subdirectories at a given path under WATCH_BASE — used by the folder picker."""
+    base = Path(settings.WATCH_BASE)
+    target = (base / path.lstrip("/")).resolve() if path else base.resolve()
+
+    if not str(target).startswith(str(base.resolve())):
+        raise HTTPException(status_code=400, detail="Path outside watch root")
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail="Path not found")
+
+    entries = []
+    for entry in sorted(target.iterdir()):
+        if entry.is_dir() and not entry.name.startswith('.'):
+            rel = str(entry.relative_to(base))
+            entries.append({"name": entry.name, "path": rel})
+
+    return {
+        "current": path or "",
+        "parent": str(Path(path).parent) if path and Path(path).parent != Path(path) else None,
+        "dirs": entries,
+    }
+
+
 def _get_watch_path(repo_id: uuid.UUID, db: Session) -> Path:
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if not repo:
@@ -58,7 +82,7 @@ def _get_watch_path(repo_id: uuid.UUID, db: Session) -> Path:
     return _resolve(repo.watch_path)
 
 
-@router.get("/{repo_id}/watch/status")
+@router.get("/repos/{repo_id}/watch/status")
 def watch_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     """Scan the repo's watch directory and return the status of every PDF."""
     watch_path = _get_watch_path(repo_id, db)
@@ -101,7 +125,7 @@ def watch_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     return {"watch_dir": str(watch_path), "files": results}
 
 
-@router.post("/{repo_id}/watch/commit")
+@router.post("/repos/{repo_id}/watch/commit")
 async def watch_commit(
     repo_id: uuid.UUID,
     filename: str = Form(...),
