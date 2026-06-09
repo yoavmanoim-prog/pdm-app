@@ -30,6 +30,7 @@ async function req(method, path, body) {
 export const listRepos = () => req('GET', '/repos/')
 export const createRepo = body => req('POST', '/repos/', body)
 export const getRepo = id => req('GET', `/repos/${id}`)
+export const deleteRepo = id => req('DELETE', `/repos/${id}`)
 
 // Documents
 export const listDocuments = repoId => req('GET', `/repos/${repoId}/documents/`)
