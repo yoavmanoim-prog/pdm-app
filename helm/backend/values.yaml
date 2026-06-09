@@ -1,5 +1,8 @@
 replicaCount: 2
 
+vaultMode: "remote"
+corsOrigins: "http://localhost:3000,http://localhost:5173"
+
 image:
   repository: 302954730632.dkr.ecr.us-east-1.amazonaws.com/pdm-backend
   tag: "latest"
@@ -52,4 +55,5 @@ rds:
 
 # frontend image — CI updates the tag alongside the backend
 frontend:
+  enabled: false  # frontend is served from S3/CloudFront, not Kubernetes
   repository: 302954730632.dkr.ecr.us-east-1.amazonaws.com/pdm-frontend

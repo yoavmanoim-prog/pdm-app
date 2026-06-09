@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.config import settings
 from app.database import init_db
-from app.routers import repositories, documents, commits, branches, tree, sync, vault_incoming, revisions, audit
+from app.routers import repositories, documents, commits, branches, tree, sync, vault_incoming, revisions, audit, watch
 
 
 @asynccontextmanager
@@ -20,6 +21,15 @@ app = FastAPI(
     description="Git-like Product Data Management for engineering schematics",
     version="2.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
+)
+
+# allow the local frontend (localhost:3000) to call the remote vault cross-origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS.split(","),
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # expose GET /metrics — Prometheus scrapes this endpoint every 15 s
@@ -36,6 +46,7 @@ app.include_router(sync.router)
 app.include_router(vault_incoming.router)
 app.include_router(revisions.router)
 app.include_router(audit.router)
+app.include_router(watch.router)
 
 
 @app.get("/")

@@ -9,7 +9,9 @@ export default defineConfig({
     // dev: proxy /api/ → local backend so CORS is not an issue
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // LOCAL_VAULT_URL is set to http://local-vault:8000 in docker-compose
+        // so the Vite dev server can reach the backend container by service name
+        target: process.env.LOCAL_VAULT_URL || 'http://localhost:8000',
         changeOrigin: true,
         rewrite: path => path.replace(/^\/api/, '')
       }
