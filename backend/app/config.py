@@ -17,10 +17,9 @@ class Settings(BaseSettings):
     # AWS region — boto3 also reads this automatically
     AWS_REGION: str = "us-east-1"
 
-    # path inside the container that is mounted from the engineer's local drawings folder
-    # e.g. set WATCH_DIR=/watch and mount ~/Desktop/drawings:/watch in docker-compose
-    # when empty, the working-directory feature is disabled
-    WATCH_DIR: str = ""
+    # base path where the user's home directory is mounted inside the container.
+    # the user picks any subfolder through the UI — no docker-compose changes needed.
+    WATCH_BASE: str = "/homedir"
 
     # comma-separated list of origins allowed to call this API cross-origin.
     # add http://localhost:3000 so the local frontend can call the remote vault.

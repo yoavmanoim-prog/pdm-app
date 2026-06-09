@@ -69,7 +69,8 @@ export const getBreaches = repoId => req('GET', `/repos/${repoId}/audit/breaches
 export const getDocumentHistory = (repoId, docId) =>
   req('GET', `/repos/${repoId}/documents/${docId}/history`)
 
-// Working directory — scans the WATCH_DIR mounted in the local vault container
-export const getWatchStatus = repoId => req('GET', `/repos/${repoId}/watch/status`)
+// Working directory — user types a folder path in the UI, backend scans it
+export const getWatchStatus = (repoId, path) =>
+  req('GET', `/repos/${repoId}/watch/status?path=${encodeURIComponent(path)}`)
 export const watchCommit = (repoId, formData) =>
   req('POST', `/repos/${repoId}/watch/commit`, formData)
