@@ -63,4 +63,3 @@ def health():
     # lightweight probe — does NOT check the database
     # Kubernetes uses this for liveness and readiness checks
     return {"healthy": True, "vault_mode": settings.VAULT_MODE}
-
