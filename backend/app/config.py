@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # home directory mount point inside the container.
     # user picks any subfolder when creating a repo — no restart needed.
-    WATCH_BASE: str = "/homedir"
+    WATCH_BASE: str = "/watch"
 
     # comma-separated list of origins allowed to call this API cross-origin.
     # add http://localhost:3000 so the local frontend can call the remote vault.

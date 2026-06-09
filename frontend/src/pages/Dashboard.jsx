@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { listRepos, createRepo, deleteRepo } from '../api'
+import FolderPicker from '../components/FolderPicker'
 
 export default function Dashboard() {
   const [repos, setRepos] = useState([])
@@ -48,15 +49,13 @@ export default function Dashboard() {
               style={{ ...inputStyle, flex: 2 }} />
           </div>
           <div>
-            <input
-              placeholder="Directory to watch (relative to home, e.g. Desktop/drawings)"
-              value={form.watch_path}
-              onChange={e => setForm({ ...form, watch_path: e.target.value })}
-              style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
-            />
-            <div style={{ fontSize: '11px', color: '#999', marginTop: '3px' }}>
-              Like <code>git init</code> — this folder is permanently linked to the repo. Leave blank for remote-only repos.
+            <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+              Directory to watch <span style={{ color: '#aaa' }}>(like git init — linked permanently to this repo)</span>
             </div>
+            <FolderPicker
+              value={form.watch_path}
+              onChange={v => setForm({ ...form, watch_path: v })}
+            />
           </div>
           <div>
             <button type="submit" style={btnStyle}>Create</button>
