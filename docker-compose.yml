@@ -12,12 +12,17 @@ services:
       REMOTE_VAULT_URL: http://remote-vault:8000  # internal Docker port (8001 is host-side only)
       S3_BUCKET: "pdm-docs-production"
       AWS_REGION: us-east-1
+      # set to /watch so the UI can show working-directory status.
+      # the volume below maps ~/Desktop/drawings on your Mac to /watch inside the container.
+      # change the left side to point at whatever folder holds your PDF drawings.
+      WATCH_DIR: /watch
     depends_on:
       local-db:
         condition: service_healthy  # wait for postgres to be ready before starting
     volumes:
       - ./backend:/app         # live reload — code changes reflect instantly
       - ~/.aws:/root/.aws:ro   # use local AWS credentials — no keys in this file
+      - ~/Desktop/drawings:/watch:ro  # mount your drawings folder — change path if needed
 
   # ── Remote Vault ────────────────────────────────────────────────────────────
   # This is the shared remote — like GitHub's servers

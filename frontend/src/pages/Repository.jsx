@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getRepo, getLog, listDocuments, listBranches, getTree, validateTree, syncStatus, push, pull, getDiff } from '../api'
+import WorkingDirectory from '../components/WorkingDirectory'
 
 export default function Repository() {
   const { repoId } = useParams()
@@ -65,7 +66,7 @@ export default function Repository() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #eee', marginBottom: '20px' }}>
-        {['commits', 'documents', 'branches', 'tree', 'validate'].map(t => (
+        {['commits', 'documents', 'branches', 'tree', 'validate', 'working dir'].map(t => (
           <button key={t} onClick={() => setTab(t)}
             style={{ padding: '8px 18px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: tab === t ? 'bold' : 'normal', borderBottom: tab === t ? '2px solid #1a1a2e' : '2px solid transparent', marginBottom: '-2px' }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -141,6 +142,11 @@ export default function Repository() {
           {tree.length === 0 && <p style={{ color: '#888' }}>No product tree yet. Add documents and link them in a BOM.</p>}
           {tree.map(node => <TreeNode key={node.id} node={node} depth={0} />)}
         </div>
+      )}
+
+      {/* Working Dir tab — shows files from the WATCH_DIR mounted in the local vault */}
+      {tab === 'working dir' && (
+        <WorkingDirectory repoId={repoId} />
       )}
 
       {/* Validate tab */}
