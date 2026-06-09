@@ -4,7 +4,7 @@
 function getBase() {
   const mode = localStorage.getItem('vaultMode') ||
     (window.location.hostname === 'localhost' ? 'local' : 'remote')
-  if (mode === 'local') return 'http://localhost:8000/api'
+  if (mode === 'local') return 'http://localhost:8000'
   if (window.location.hostname !== 'localhost') return '/api'
   const remote = localStorage.getItem('remoteVaultUrl') || ''
   return remote ? `${remote}/api` : '/api'

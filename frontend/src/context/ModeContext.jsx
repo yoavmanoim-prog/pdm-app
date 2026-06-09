@@ -25,7 +25,7 @@ export function ModeProvider({ children }) {
 
   // the base URL api.js should use for the current mode
   function apiBase() {
-    if (mode === 'local') return 'http://localhost:8000/api'
+    if (mode === 'local') return 'http://localhost:8000'
     // on CloudFront: relative path (same domain); on localhost: absolute remote URL
     if (!isLocalhost) return '/api'
     return remoteUrl ? `${remoteUrl}/api` : '/api'
