@@ -7,7 +7,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showNew, setShowNew] = useState(false)
-  const [form, setForm] = useState({ name: '', description: '' })
+  const [form, setForm] = useState({ name: '', description: '', watch_path: '' })
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -38,14 +38,29 @@ export default function Dashboard() {
       </div>
 
       {showNew && (
-        <form onSubmit={handleCreate} style={{ background: '#f5f5f5', padding: '16px', borderRadius: '6px', marginBottom: '20px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <input required placeholder="Repository name" value={form.name}
-            onChange={e => setForm({ ...form, name: e.target.value })}
-            style={inputStyle} />
-          <input placeholder="Description (optional)" value={form.description}
-            onChange={e => setForm({ ...form, description: e.target.value })}
-            style={{ ...inputStyle, flex: 2 }} />
-          <button type="submit" style={btnStyle}>Create</button>
+        <form onSubmit={handleCreate} style={{ background: '#f5f5f5', padding: '16px', borderRadius: '6px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <input required placeholder="Repository name" value={form.name}
+              onChange={e => setForm({ ...form, name: e.target.value })}
+              style={inputStyle} />
+            <input placeholder="Description (optional)" value={form.description}
+              onChange={e => setForm({ ...form, description: e.target.value })}
+              style={{ ...inputStyle, flex: 2 }} />
+          </div>
+          <div>
+            <input
+              placeholder="Directory to watch (relative to home, e.g. Desktop/drawings)"
+              value={form.watch_path}
+              onChange={e => setForm({ ...form, watch_path: e.target.value })}
+              style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
+            />
+            <div style={{ fontSize: '11px', color: '#999', marginTop: '3px' }}>
+              Like <code>git init</code> — this folder is permanently linked to the repo. Leave blank for remote-only repos.
+            </div>
+          </div>
+          <div>
+            <button type="submit" style={btnStyle}>Create</button>
+          </div>
         </form>
       )}
 
