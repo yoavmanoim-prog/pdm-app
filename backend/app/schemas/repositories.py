@@ -18,7 +18,7 @@ class RepositoryResponse(BaseModel):
     name: str
     description: str | None
     remote_url: str | None
-    watch_path: str | None
+    watch_path: str | None = None
     created_at: datetime
 
     class Config:
