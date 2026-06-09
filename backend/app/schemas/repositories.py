@@ -5,10 +5,11 @@ from pydantic import BaseModel
 
 
 class RepositoryCreate(BaseModel):
-    # fields the API caller must provide when creating a repository
     name: str
     description: str | None = None
     remote_url: str | None = None
+    # folder to track — relative to home directory, set once like git init
+    watch_path: str | None = None
 
 
 class RepositoryResponse(BaseModel):
@@ -17,6 +18,7 @@ class RepositoryResponse(BaseModel):
     name: str
     description: str | None
     remote_url: str | None
+    watch_path: str | None
     created_at: datetime
 
     class Config:
