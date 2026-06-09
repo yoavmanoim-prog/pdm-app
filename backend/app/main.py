@@ -20,6 +20,7 @@ app = FastAPI(
     description="Git-like Product Data Management for engineering schematics",
     version="2.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # expose GET /metrics — Prometheus scrapes this endpoint every 15 s
