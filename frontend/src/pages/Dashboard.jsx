@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { listRepos, createRepo } from '../api'
+import { listRepos, createRepo, deleteRepo } from '../api'
 
 export default function Dashboard() {
   const [repos, setRepos] = useState([])
@@ -67,7 +67,19 @@ export default function Dashboard() {
       {repos.length === 0 && <p style={{ color: '#888' }}>No repositories yet. Create one to get started.</p>}
 
       {repos.map(r => (
-        <Link key={r.id} to={`/repos/${r.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+        <div key={r.id} style={{ position: 'relative' }}>
+          <button
+            onClick={async e => {
+              e.stopPropagation()
+              if (!window.confirm(`Delete "${r.name}"? This cannot be undone.`)) return
+              await deleteRepo(r.id)
+              setRepos(repos.filter(x => x.id !== r.id))
+            }}
+            style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 1, background: 'none', border: '1px solid #ddd', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontSize: '12px', color: '#999' }}
+          >
+            Delete
+          </button>
+          <Link to={`/repos/${r.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
           <div style={cardStyle}>
             {/* top row: repo name + description */}
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
@@ -98,7 +110,8 @@ export default function Dashboard() {
               Created {new Date(r.created_at).toLocaleDateString()}
             </div>
           </div>
-        </Link>
+          </Link>
+        </div>
       ))}
     </div>
   )

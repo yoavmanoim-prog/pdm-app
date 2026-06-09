@@ -69,3 +69,12 @@ def get_repository(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     return repo
+
+
+@router.delete("/{repo_id}", status_code=204)
+def delete_repository(repo_id: uuid.UUID, db: Session = Depends(get_db)):
+    repo = db.get(Repository, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    db.delete(repo)
+    db.commit()
