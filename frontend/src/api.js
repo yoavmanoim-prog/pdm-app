@@ -1,7 +1,14 @@
 // All API calls go through this file.
-// /api/ is proxied to the backend (dev: vite proxy, prod: nginx)
+// The base URL switches based on vault mode (local vs remote).
 
-const BASE = '/api'
+function getBase() {
+  const mode = localStorage.getItem('vaultMode') ||
+    (window.location.hostname === 'localhost' ? 'local' : 'remote')
+  if (mode === 'local') return 'http://localhost:8000/api'
+  if (window.location.hostname !== 'localhost') return '/api'
+  const remote = localStorage.getItem('remoteVaultUrl') || ''
+  return remote ? `${remote}/api` : '/api'
+}
 
 async function req(method, path, body) {
   const opts = { method, headers: {} }
@@ -11,7 +18,7 @@ async function req(method, path, body) {
   } else if (body) {
     opts.body = body  // FormData — browser sets Content-Type automatically
   }
-  const res = await fetch(`${BASE}${path}`, opts)
+  const res = await fetch(`${getBase()}${path}`, opts)
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail))

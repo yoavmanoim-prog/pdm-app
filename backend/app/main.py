@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.config import settings
 from app.database import init_db
@@ -21,6 +22,14 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
     redirect_slashes=False,
+)
+
+# allow the local frontend (localhost:3000) to call the remote vault cross-origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS.split(","),
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # expose GET /metrics — Prometheus scrapes this endpoint every 15 s
