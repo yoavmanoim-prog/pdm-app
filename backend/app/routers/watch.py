@@ -10,7 +10,6 @@ version in the repo, and returns one of three statuses per file:
   untracked  — no document in this repo matches the filename's part number
 """
 import hashlib
-import os
 import uuid
 from pathlib import Path
 
@@ -22,7 +21,6 @@ from app.config import settings
 from app.database import get_db
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
-from app import storage
 
 router = APIRouter(prefix="/repos", tags=["watch"])
 
@@ -135,8 +133,6 @@ async def watch_commit(
     if doc_id:
         # update an existing document — same path as /documents/{id}/upload
         from app.routers.documents import upload_document
-        from fastapi import UploadFile
-        import io
 
         class _FakeUpload:
             filename = filename
