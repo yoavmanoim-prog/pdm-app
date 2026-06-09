@@ -94,18 +94,25 @@ jobs:
             docker push $ECR_REGISTRY/$ECR_BACKEND:latest
           fi
 
-      # frontend is served from S3/CloudFront — no Docker image needed
+      # frontend is served from S3/CloudFront — no Docker image needed.
+      # bucket name and CloudFront ID are looked up from AWS using the OIDC role.
       - name: Build and deploy frontend to S3
         run: |
+          # derive env name from branch/tag
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then ENV=production; else ENV=staging; fi
+          BUCKET="pdm-frontend-${ENV}"
+
+          # look up the CloudFront distribution that serves this bucket as its S3 origin.
+          # the origin domain is regional (bucket.s3.<region>.amazonaws.com) so we use contains().
+          CF_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?contains(Origins.Items[0].DomainName, '${BUCKET}.s3')].Id" \
+            --output text)
+
           cd frontend
           npm ci
           npm run build
-          # sync built files to S3; --delete removes files no longer in the build
-          aws s3 sync dist/ s3://${{ secrets.FRONTEND_BUCKET }} --delete
-          # invalidate CloudFront so users get the new version immediately
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-            --paths "/*"
+          aws s3 sync dist/ s3://$BUCKET --delete
+          aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
 
   update-gitops:
     needs: build-and-push
