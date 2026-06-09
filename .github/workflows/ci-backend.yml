@@ -78,44 +78,40 @@ jobs:
         id: meta
         run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
 
-      # build backend and frontend in parallel using Docker Bake
-      # each build also caches layers to ECR so future builds are faster
-      - name: Build and push backend
+      - name: Build and push backend image
         run: |
           IMAGE=$ECR_REGISTRY/$ECR_BACKEND:${{ steps.meta.outputs.tag }}
           docker build \
             --platform linux/amd64 \
             --cache-from $ECR_REGISTRY/$ECR_BACKEND:latest \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
-            -t $IMAGE ./backend &
-          BACKEND_PID=$!
-
-          docker build \
-            --platform linux/amd64 \
-            --cache-from $ECR_REGISTRY/$ECR_FRONTEND:latest \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
-            -t $ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }} ./frontend &
-          FRONTEND_PID=$!
-
-          # wait for both builds to finish
-          wait $BACKEND_PID && wait $FRONTEND_PID
-
+            -t $IMAGE ./backend
           docker push $IMAGE
-          docker push $ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }}
 
           # tag as latest on develop merges
           if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
             docker tag $IMAGE $ECR_REGISTRY/$ECR_BACKEND:latest
             docker push $ECR_REGISTRY/$ECR_BACKEND:latest
-            docker tag $ECR_REGISTRY/$ECR_FRONTEND:${{ steps.meta.outputs.tag }} $ECR_REGISTRY/$ECR_FRONTEND:latest
-            docker push $ECR_REGISTRY/$ECR_FRONTEND:latest
           fi
+
+      # frontend is served from S3/CloudFront — no Docker image needed
+      - name: Build and deploy frontend to S3
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          # sync built files to S3; --delete removes files no longer in the build
+          aws s3 sync dist/ s3://${{ secrets.FRONTEND_BUCKET }} --delete
+          # invalidate CloudFront so users get the new version immediately
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
 
   update-gitops:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Update image tag in GitOps repo
+      - name: Update backend image tag in GitOps repo
         env:
           GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
@@ -130,7 +126,7 @@ jobs:
           sed -i "s/tag: .*/tag: ${IMAGE_TAG}/" ${ENV}/backend/values.yaml
           git config user.email "ci@pdm"
           git config user.name "GitHub Actions"
-          git commit -am "ci: update image to ${IMAGE_TAG}"
+          git commit -am "ci: update backend image to ${IMAGE_TAG}"
           git push
 
   notify-slack:
