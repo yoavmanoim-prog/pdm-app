@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { getWatchStatus, watchCommit } from '../api'
+import { getWatchStatus, watchCommit, watchPreviewUrl } from '../api'
 
 const badge = {
   committed: { background: '#d4edda', color: '#155724', label: 'committed' },
@@ -12,6 +12,7 @@ export default function WorkingDirectory({ repoId }) {
   const [watchDir, setWatchDir] = useState('')
   const [error, setError]       = useState(null)
   const [committing, setCommitting] = useState(null)
+  const [preview, setPreview]   = useState(null)   // filename being previewed
   const intervalRef = useRef(null)
 
   const refresh = () => {
@@ -45,6 +46,21 @@ export default function WorkingDirectory({ repoId }) {
 
   return (
     <div>
+      {/* ── PDF preview modal ── */}
+      {preview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', flexDirection: 'column' }}
+          onClick={() => setPreview(null)}>
+          <div style={{ background: '#fff', margin: '40px auto', width: '90%', maxWidth: '900px', height: 'calc(100vh - 80px)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #eee' }}>
+              <span style={{ fontSize: '14px', fontWeight: 600 }}>{preview}</span>
+              <button onClick={() => setPreview(null)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#666' }}>✕</button>
+            </div>
+            <iframe src={watchPreviewUrl(repoId, preview)} style={{ flex: 1, border: 'none' }} title={preview} />
+          </div>
+        </div>
+      )}
+
       {watchDir && (
         <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>
           Watching <code style={{ background: '#f0f0f0', padding: '1px 6px', borderRadius: '3px' }}>{watchDir}</code>
@@ -69,7 +85,11 @@ export default function WorkingDirectory({ repoId }) {
               {badge[f.status].label}
             </span>
             <span style={{ flex: 1 }}>
-              <code style={{ fontSize: '13px' }}>{f.filename}</code>
+              <code
+                onClick={() => setPreview(f.filename)}
+                style={{ fontSize: '13px', cursor: 'pointer', color: '#1a1a2e', textDecoration: 'underline dotted' }}
+                title="Click to preview"
+              >{f.filename}</code>
               {f.title && <span style={{ marginLeft: '8px', color: '#666', fontSize: '13px' }}>{f.title}</span>}
             </span>
             <code style={{ fontSize: '11px', color: '#aaa' }}>{f.hash}</code>

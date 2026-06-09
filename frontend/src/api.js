@@ -74,3 +74,4 @@ export const getDocumentHistory = (repoId, docId) =>
 export const getWatchStatus = repoId => req('GET', `/repos/${repoId}/watch/status`)
 export const watchCommit = (repoId, formData) => req('POST', `/repos/${repoId}/watch/commit`, formData)
 export const browseWatch = (path = '') => req('GET', `/watch/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`)
+export const watchPreviewUrl = (repoId, filename) => `${getBase()}/repos/${repoId}/watch/preview/${encodeURIComponent(filename)}`

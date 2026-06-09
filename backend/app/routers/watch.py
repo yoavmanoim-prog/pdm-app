@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -123,6 +124,16 @@ def watch_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             })
 
     return {"watch_dir": str(watch_path), "files": results}
+
+
+@router.get("/repos/{repo_id}/watch/preview/{filename:path}")
+def watch_preview(repo_id: uuid.UUID, filename: str, db: Session = Depends(get_db)):
+    """Stream a PDF from the watch directory so the browser can display it inline."""
+    watch_path = _get_watch_path(repo_id, db)
+    file_path = watch_path / filename
+    if not file_path.exists() or not file_path.suffix.lower() == '.pdf':
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path, media_type="application/pdf", filename=filename)
 
 
 @router.post("/repos/{repo_id}/watch/commit")
