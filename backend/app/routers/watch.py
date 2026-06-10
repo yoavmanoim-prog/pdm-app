@@ -63,9 +63,14 @@ def browse(path: str = Query("", description="Relative path to browse (empty = r
 
     entries = []
     for entry in sorted(target.iterdir()):
-        if entry.is_dir() and not entry.name.startswith('.'):
-            rel = str(entry.relative_to(base))
-            entries.append({"name": entry.name, "path": rel})
+        if entry.name.startswith('.'):
+            continue  # skip hidden dirs before stat-ing (avoids PermissionError on macOS .Trash etc.)
+        try:
+            if entry.is_dir():
+                rel = str(entry.relative_to(base))
+                entries.append({"name": entry.name, "path": rel})
+        except PermissionError:
+            continue
 
     return {
         "current": path or "",
