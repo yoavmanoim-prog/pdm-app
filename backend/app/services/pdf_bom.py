@@ -1,3 +1,4 @@
+import io
 import logging
 import re
 import uuid
@@ -17,15 +18,49 @@ logger = logging.getLogger(__name__)
 # BOM creation uses direct substring search so any naming convention works.
 PART_NUMBER_RE = re.compile(r'\b[A-Z]{2,6}-[A-Z]{2,6}-\d{3,8}\b')
 
+# If the text layer has fewer characters than this, the PDF is likely
+# image-based and we fall back to OCR.
+_OCR_THRESHOLD = 30
+
 
 def _extract_text(pdf_bytes: bytes) -> str:
+    """Extract text from PDF. Falls back to OCR for image-based (scanned) drawings."""
     parts = []
     with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
         for page in pdf:
             t = page.get_text()
             if t:
                 parts.append(t)
-    return "\n".join(parts)
+    text = "\n".join(parts)
+
+    if len(text.strip()) >= _OCR_THRESHOLD:
+        return text
+
+    # Text layer is empty or too sparse — fall back to Tesseract OCR
+    logger.info("pdf_bom: sparse text layer (%d chars), running OCR", len(text.strip()))
+    return _ocr_pdf(pdf_bytes)
+
+
+def _ocr_pdf(pdf_bytes: bytes) -> str:
+    """Render each PDF page as an image and run Tesseract OCR on it."""
+    try:
+        import pytesseract
+        from PIL import Image
+
+        parts = []
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
+            for page in pdf:
+                # 3× zoom (~216 DPI) — engineering drawings have small text
+                pix = page.get_pixmap(matrix=fitz.Matrix(3, 3))
+                img = Image.open(io.BytesIO(pix.tobytes("png")))
+                ocr_text = pytesseract.image_to_string(img)
+                if ocr_text:
+                    parts.append(ocr_text)
+
+        return "\n".join(parts)
+    except Exception as e:
+        logger.warning("pdf_bom: OCR failed: %s", e)
+        return ""
 
 
 def _latest_commit_file(doc_id: uuid.UUID, repo_id: uuid.UUID, db: Session):

@@ -7,6 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmupdf-dev \
     mupdf-tools \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*   # clean up to keep image small
 
 # Copy requirements first — Docker caches this layer

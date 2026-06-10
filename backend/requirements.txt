@@ -16,6 +16,10 @@ pypdf==6.12.2          # merging PDF files
 # SVG/PDF conversion — converts uploaded PDFs to SVG for internal storage
 pymupdf==1.27.2
 
+# OCR fallback for scanned/image-based PDFs
+pytesseract==0.3.10
+Pillow==10.4.0
+
 # data validation and settings management
 pydantic==2.7.1
 pydantic-settings==2.2.1  # reads config from environment variables and .env files
