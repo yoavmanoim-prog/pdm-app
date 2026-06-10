@@ -10,6 +10,10 @@ function getBase() {
   return remote ? `${remote}/api` : '/api'
 }
 
+// Watch/browse always talks to the local vault — it reads the local filesystem
+// regardless of which vault mode the UI is in.
+const LOCAL_BASE = 'http://localhost:8000'
+
 async function req(method, path, body) {
   const opts = { method, headers: {} }
   if (body && !(body instanceof FormData)) {
@@ -81,5 +85,8 @@ export const getDocumentHistory = (repoId, docId) =>
 // Working directory
 export const getWatchStatus = repoId => req('GET', `/repos/${repoId}/watch/status`)
 export const watchCommit = (repoId, formData) => req('POST', `/repos/${repoId}/watch/commit`, formData)
-export const browseWatch = (path = '') => req('GET', `/watch/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`)
-export const watchPreviewUrl = (repoId, filename) => `${getBase()}/repos/${repoId}/watch/preview/${encodeURIComponent(filename)}`
+// browseWatch and watchPreviewUrl always use LOCAL_BASE — they access the local filesystem
+export const browseWatch = (path = '') =>
+  fetch(`${LOCAL_BASE}/watch/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`)
+    .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(new Error(e.detail || r.statusText))))
+export const watchPreviewUrl = (repoId, filename) => `${LOCAL_BASE}/repos/${repoId}/watch/preview/${encodeURIComponent(filename)}`
