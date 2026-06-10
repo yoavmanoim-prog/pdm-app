@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { browseWatch } from '../api'
 
+const isLocalApp = window.location.hostname === 'localhost'
+
 export default function FolderPicker({ value, onChange }) {
   const [open, setOpen]     = useState(false)
   const [browsing, setBrowsing] = useState('')   // current path in browser
@@ -12,7 +14,7 @@ export default function FolderPicker({ value, onChange }) {
     setError(null)
     browseWatch(path)
       .then(d => { setDirs(d.dirs); setBrowsing(d.current); setParent(d.parent) })
-      .catch(e => setError(e.message))
+      .catch(() => setError('Cannot reach local vault — make sure docker-compose is running'))
   }
 
   useEffect(() => { if (open) load('') }, [open])
@@ -31,10 +33,12 @@ export default function FolderPicker({ value, onChange }) {
           placeholder="DevOps/projects/drawings"
           style={{ flex: 1, padding: '7px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '13px' }}
         />
-        <button type="button" onClick={() => setOpen(!open)}
-          style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', background: '#f5f5f5', fontSize: '13px' }}>
-          Browse
-        </button>
+        {isLocalApp && (
+          <button type="button" onClick={() => setOpen(!open)}
+            style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', background: '#f5f5f5', fontSize: '13px' }}>
+            Browse
+          </button>
+        )}
       </div>
 
       {open && (
