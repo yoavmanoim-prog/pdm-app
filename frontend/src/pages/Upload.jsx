@@ -102,6 +102,7 @@ export default function Upload() {
             <select value={form.doc_type} onChange={e => setForm({ ...form, doc_type: e.target.value })} style={inputStyle}>
               <option value="detail">Detail (single part)</option>
               <option value="assembly">Assembly (contains other parts)</option>
+              <option value="part">Part</option>
             </select>
           </>
         )}
