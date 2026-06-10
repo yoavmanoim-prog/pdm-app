@@ -36,6 +36,7 @@ export const deleteRepo = id => req('DELETE', `/repos/${id}`)
 export const listDocuments = repoId => req('GET', `/repos/${repoId}/documents/`)
 export const createDocument = (repoId, body) => req('POST', `/repos/${repoId}/documents/`, body)
 export const getDocument = (repoId, docId) => req('GET', `/repos/${repoId}/documents/${docId}`)
+export const editDocument = (repoId, docId, body) => req('PATCH', `/repos/${repoId}/documents/${docId}`, body)
 export const uploadDocument = (repoId, docId, formData) =>
   req('POST', `/repos/${repoId}/documents/${docId}/upload`, formData)
 // returns all versions of a document with presigned PDF URLs for each version and the one before it
