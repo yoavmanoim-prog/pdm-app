@@ -89,18 +89,17 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
     if not doc or doc.doc_type not in ("assembly", "part"):
         return {"created": 0, "missing": []}
 
+    # extract text first — missing detection must run even with 0 other docs
+    text_upper = _extract_text(pdf_bytes).upper()
+    if not text_upper.strip():
+        logger.info("pdf_bom: no extractable text in PDF for doc %s (image-based?)", doc_id)
+        return {"created": 0, "missing": []}
+
     repo_docs = (
         db.query(Document)
         .filter(Document.repository_id == repo_id, Document.id != doc_id)
         .all()
     )
-    if not repo_docs:
-        return {"created": 0, "missing": []}
-
-    text_upper = _extract_text(pdf_bytes).upper()
-    if not text_upper.strip():
-        logger.info("pdf_bom: no extractable text in PDF for doc %s (image-based?)", doc_id)
-        return {"created": 0, "missing": []}
 
     # BOM creation — direct substring match, works with any part number format
     created = 0
