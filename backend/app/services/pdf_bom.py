@@ -101,7 +101,7 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
         .all()
     )
 
-    # BOM creation — direct substring match, works with any part number format
+    # BOM creation — direct substring match against the part number
     created = 0
     for candidate in repo_docs:
         if candidate.part_number.upper() not in text_upper:
@@ -121,7 +121,12 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
         logger.info("pdf_bom: auto-linked %s as son of %s", candidate.part_number, doc.part_number)
 
     # Missing detection — regex tokens not found in the repo (best-effort)
-    known = {d.part_number.upper() for d in repo_docs} | {doc.part_number.upper()}
+    # Build known set: include both full part_number strings AND short tokens
+    # extracted from them (handles cases like "FW-MA-0000 -Main Assembly Title")
+    known = set()
+    for d in [*repo_docs, doc]:
+        known.add(d.part_number.upper())
+        known.update(m.group() for m in PART_NUMBER_RE.finditer(d.part_number.upper()))
     regex_found = {m.group() for m in PART_NUMBER_RE.finditer(text_upper)}
     missing = sorted(regex_found - known)
 
