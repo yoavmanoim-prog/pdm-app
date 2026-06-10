@@ -279,6 +279,14 @@ async def upload_document(
 
     db.commit()
 
+    # auto-link BOM sons and retroactively link this doc to existing assemblies
+    try:
+        from app.services.pdf_bom import auto_link_sons, retro_link_fathers
+        auto_link_sons(pdf_bytes, repo_id, doc_id, db)
+        retro_link_fathers(repo_id, doc_id, db)
+    except Exception:
+        pass  # extraction failure never blocks the commit
+
     return {
         "commit_hash": short_hash,
         "document_id": str(doc_id),

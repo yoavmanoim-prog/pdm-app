@@ -138,10 +138,18 @@ def validate_tree(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             .order_by(desc(Revision.published_at))
             .first()
         )
-        has_drawing = db.query(CommitFile).join(Commit).filter(
-            CommitFile.document_id == doc.id,
-            Commit.branch_id.is_(None),
-        ).first() is not None
+        latest_cf = (
+            db.query(CommitFile)
+            .join(Commit)
+            .filter(CommitFile.document_id == doc.id, Commit.branch_id.is_(None))
+            .order_by(desc(Commit.timestamp))
+            .first()
+        )
+        has_drawing = latest_cf is not None
+        missing_components = []
+        if latest_cf:
+            diff = latest_cf.commit.diff_report or {}
+            missing_components = diff.get("missing_components", [])
 
         result.append({
             "document_id": str(doc.id),
@@ -152,6 +160,7 @@ def validate_tree(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             "revision": latest_rev.revision_code if latest_rev else None,
             "revision_status": latest_rev.status if latest_rev else "unreleased",
             "is_released": latest_rev is not None and latest_rev.status == "released",
+            "missing_components": missing_components,
         })
 
     released = sum(1 for r in result if r["is_released"])
