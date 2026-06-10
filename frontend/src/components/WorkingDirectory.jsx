@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { getWatchStatus, watchCommit, watchPreviewUrl, listBranches } from '../api'
+import { getWatchStatus, watchCommit, watchPreviewUrl, listBranches, listDocuments, addBomEntry } from '../api'
 import { useRepo } from '../context/RepoContext'
 
 const badge = {
@@ -116,17 +116,25 @@ function CommitForm({ repoId, file, onDone }) {
   const [message, setMessage]       = useState('')
   const [partNumber, setPartNumber] = useState(file.part_number || '')
   const [title, setTitle]           = useState(file.title || '')
-  const [docType, setDocType]       = useState('detail')
-  const [branchId, setBranchId]     = useState('')      // '' = main
+  const [docType, setDocType]       = useState(file.doc_type || 'detail')
+  const [branchId, setBranchId]     = useState('')
   const [branches, setBranches]     = useState([])
+  // sons = BOM entries to create after commit (only for assemblies)
+  const [sons, setSons]             = useState([])
+  const [allDocs, setAllDocs]       = useState([])
   const [loading, setLoading]       = useState(false)
   const [err, setErr]               = useState(null)
 
+  const isAssembly = docType === 'assembly' || file.doc_type === 'assembly'
+
   useEffect(() => {
-    listBranches(repoId)
-      .then(b => setBranches(b.filter(x => x.status === 'open')))
-      .catch(() => {})
-  }, [repoId])
+    listBranches(repoId).then(b => setBranches(b.filter(x => x.status === 'open'))).catch(() => {})
+    if (isAssembly) listDocuments(repoId).then(setAllDocs).catch(() => {})
+  }, [repoId, isAssembly])
+
+  const addSon = () => setSons(s => [...s, { part_number: '', qty: 1, position: '' }])
+  const updateSon = (i, field, val) => setSons(s => s.map((x, idx) => idx === i ? { ...x, [field]: val } : x))
+  const removeSon = (i) => setSons(s => s.filter((_, idx) => idx !== i))
 
   const handleSubmit = async e => {
     e.preventDefault()
@@ -146,7 +154,24 @@ function CommitForm({ repoId, file, onDone }) {
         fd.append('title', title)
         fd.append('doc_type', docType)
       }
-      await watchCommit(repoId, fd)
+      const result = await watchCommit(repoId, fd)
+
+      // create BOM entries for each son after commit succeeds
+      const assemblyDocId = file.doc_id || result?.document_id
+      if (assemblyDocId && sons.length > 0) {
+        const docByPart = Object.fromEntries(allDocs.map(d => [d.part_number.toUpperCase(), d]))
+        for (const son of sons) {
+          const comp = docByPart[son.part_number.toUpperCase()]
+          if (!comp) continue
+          await addBomEntry(repoId, assemblyDocId, {
+            component_id: comp.id,
+            quantity: parseInt(son.qty) || 1,
+            position: son.position || null,
+            item_type: comp.doc_type === 'assembly' ? 'assembly' : 'part',
+          }).catch(() => {})   // skip duplicates silently
+        }
+      }
+
       onDone()
     } catch (e) {
       setErr(e.message)
@@ -184,6 +209,53 @@ function CommitForm({ repoId, file, onDone }) {
         onChange={e => setAuthor(e.target.value)} style={inputStyle} />
       <input required placeholder="Commit message" value={message}
         onChange={e => setMessage(e.target.value)} style={inputStyle} />
+      {/* ── Sons / BOM section — only for assemblies ── */}
+      {isAssembly && (
+        <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#555' }}>Component drawings (sons)</span>
+            <button type="button" onClick={addSon}
+              style={{ fontSize: '12px', padding: '2px 10px', border: '1px solid #1a1a2e', borderRadius: '4px', cursor: 'pointer', background: 'none', color: '#1a1a2e' }}>
+              + Add
+            </button>
+          </div>
+
+          {sons.length === 0 && (
+            <p style={{ fontSize: '12px', color: '#aaa', margin: 0 }}>No components yet — click + Add to link child drawings.</p>
+          )}
+
+          {sons.map((s, i) => (
+            <div key={i} style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+              <input
+                placeholder="Part number"
+                value={s.part_number}
+                onChange={e => updateSon(i, 'part_number', e.target.value)}
+                list={`docs-list-${i}`}
+                style={{ ...inputStyle, flex: 2 }}
+              />
+              <datalist id={`docs-list-${i}`}>
+                {allDocs.map(d => <option key={d.id} value={d.part_number}>{d.title}</option>)}
+              </datalist>
+              <input
+                placeholder="Qty"
+                type="number" min="1"
+                value={s.qty}
+                onChange={e => updateSon(i, 'qty', e.target.value)}
+                style={{ ...inputStyle, width: '56px' }}
+              />
+              <input
+                placeholder="Pos"
+                value={s.position}
+                onChange={e => updateSon(i, 'position', e.target.value)}
+                style={{ ...inputStyle, width: '56px' }}
+              />
+              <button type="button" onClick={() => removeSon(i)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: '16px', padding: '0 4px' }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {err && <p style={{ color: 'red', margin: 0, fontSize: '13px' }}>{err}</p>}
       <button type="submit" disabled={loading} style={{ ...btnStyle, alignSelf: 'flex-start' }}>
         {loading ? 'Committing…' : 'Commit from disk'}
