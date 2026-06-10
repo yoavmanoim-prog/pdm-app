@@ -85,7 +85,17 @@ function RepositoryInner() {
           {commits.length === 0 && <p style={{ color: '#888' }}>No commits yet.</p>}
           {commits.map(c => (
             <div key={c.id} style={rowStyle}>
-              <code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: '3px', fontSize: '13px' }}>{c.short_hash}</code>
+              {/* show drawing part numbers instead of hash */}
+              <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                {c.files?.length > 0
+                  ? c.files.map(f => (
+                    <code key={f.id} style={{ background: '#e8f0fe', color: '#1a1a2e', padding: '2px 7px', borderRadius: '3px', fontSize: '12px' }}>
+                      {f.part_number || f.document_id.slice(0, 8)}
+                    </code>
+                  ))
+                  : <code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: '3px', fontSize: '12px', color: '#aaa' }}>{c.short_hash}</code>
+                }
+              </div>
               <span style={{ marginLeft: '12px', flex: 1 }}>{c.message}</span>
               <span style={{ color: '#888', fontSize: '12px' }}>{c.author} · {new Date(c.timestamp).toLocaleString()}</span>
               {c.files?.length > 0 && (
@@ -228,8 +238,15 @@ function BranchesTab({ repoId, branches }) {
               {!commits[b.id] && <p style={{ color: '#aaa', fontSize: '13px', margin: '6px 0' }}>Loading…</p>}
               {commits[b.id]?.length === 0 && <p style={{ color: '#aaa', fontSize: '13px', margin: '6px 0' }}>No commits on this branch yet.</p>}
               {commits[b.id]?.map(c => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px', borderRadius: '4px', marginBottom: '3px', background: '#fafafa', fontSize: '13px' }}>
-                  <code style={{ background: '#f0f0f0', padding: '1px 6px', borderRadius: '3px', fontSize: '12px' }}>{c.short_hash}</code>
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', marginBottom: '3px', background: '#fafafa', fontSize: '13px' }}>
+                  {c.files?.length > 0
+                    ? c.files.map(f => (
+                      <code key={f.id} style={{ background: '#e8f0fe', color: '#1a1a2e', padding: '1px 6px', borderRadius: '3px', fontSize: '12px' }}>
+                        {f.part_number || f.document_id.slice(0, 8)}
+                      </code>
+                    ))
+                    : <code style={{ background: '#f0f0f0', padding: '1px 6px', borderRadius: '3px', fontSize: '12px', color: '#aaa' }}>{c.short_hash}</code>
+                  }
                   <span style={{ flex: 1 }}>{c.message}</span>
                   <span style={{ color: '#aaa', fontSize: '11px' }}>{c.author} · {new Date(c.timestamp).toLocaleDateString()}</span>
                 </div>

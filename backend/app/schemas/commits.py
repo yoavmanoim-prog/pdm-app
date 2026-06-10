@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class CommitFileResponse(BaseModel):
     id: uuid.UUID
     document_id: uuid.UUID
+    part_number: str | None = None   # populated by the log endpoint via document join
     s3_key_pdf: str | None
     content_hash: str | None
     change_type: str  # "added", "modified", "deleted"
