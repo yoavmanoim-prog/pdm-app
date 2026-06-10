@@ -126,6 +126,8 @@ function CommitForm({ repoId, file, onDone }) {
   const [err, setErr]               = useState(null)
 
   const isAssembly = docType === 'assembly' || file.doc_type === 'assembly'
+  const isPart = docType === 'part' || file.doc_type === 'part'
+  const canHaveSons = isAssembly || isPart   // both assemblies and parts can have sons
   const allAssemblies = allDocs.filter(d => d.doc_type === 'assembly')
 
   useEffect(() => {
@@ -145,6 +147,7 @@ function CommitForm({ repoId, file, onDone }) {
     e.preventDefault()
     if (!author.trim()) return setErr('Enter your name')
     if (!message.trim()) return setErr('Enter a commit message')
+    if (isPart && fathers.length === 0) return setErr('A "Part" drawing must be linked to at least one parent assembly')
     setLoading(true); setErr(null)
     try {
       const fd = new FormData()
@@ -162,11 +165,11 @@ function CommitForm({ repoId, file, onDone }) {
       const result = await watchCommit(repoId, fd)
 
       const currentDocId = file.doc_id || result?.document_id
-      const needsBom = (isAssembly && sons.length > 0) || fathers.length > 0
+      const needsBom = (canHaveSons && sons.length > 0) || fathers.length > 0
       const docByPart = needsBom ? Object.fromEntries(allDocs.map(d => [d.part_number.toUpperCase(), d])) : {}
 
-      // sons — current doc is the assembly, link its component children
-      if (currentDocId && isAssembly && sons.length > 0) {
+      // sons — assemblies and parts can have sons
+      if (currentDocId && canHaveSons && sons.length > 0) {
         for (const son of sons) {
           const comp = docByPart[son.part_number.toUpperCase()]
           if (!comp) continue
@@ -217,6 +220,7 @@ function CommitForm({ repoId, file, onDone }) {
             <select value={docType} onChange={e => setDocType(e.target.value)} style={inputStyle}>
               <option value="detail">Detail</option>
               <option value="assembly">Assembly</option>
+              <option value="part">Part</option>
             </select>
           </div>
           <input required placeholder="Title (e.g. SMA End Cap)" value={title}
@@ -231,8 +235,8 @@ function CommitForm({ repoId, file, onDone }) {
         onChange={e => setAuthor(e.target.value)} style={inputStyle} />
       <input required placeholder="Commit message" value={message}
         onChange={e => setMessage(e.target.value)} style={inputStyle} />
-      {/* ── Sons — component drawings inside this assembly ── */}
-      {isAssembly && (
+      {/* ── Sons — component drawings inside this assembly or part ── */}
+      {canHaveSons && (
         <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: '#555' }}>Component drawings (sons)</span>

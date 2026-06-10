@@ -34,8 +34,8 @@ def create_document(repo_id: uuid.UUID, body: DocumentCreate, db: Session = Depe
             detail=f"Part number '{body.part_number}' already exists in this repository",
         )
 
-    if body.doc_type not in ("detail", "assembly"):
-        raise HTTPException(status_code=400, detail="doc_type must be 'detail' or 'assembly'")
+    if body.doc_type not in ("detail", "assembly", "part"):
+        raise HTTPException(status_code=400, detail="doc_type must be 'detail', 'assembly', or 'part'")
 
     doc = Document(
         repository_id=repo_id,
@@ -62,8 +62,8 @@ def edit_document(repo_id: uuid.UUID, doc_id: uuid.UUID, body: DocumentCreate, d
     doc = db.get(Document, doc_id)
     if not doc or doc.repository_id != repo_id:
         raise HTTPException(status_code=404, detail="Document not found")
-    if body.doc_type not in ("detail", "assembly"):
-        raise HTTPException(status_code=400, detail="doc_type must be 'detail' or 'assembly'")
+    if body.doc_type not in ("detail", "assembly", "part"):
+        raise HTTPException(status_code=400, detail="doc_type must be 'detail', 'assembly', or 'part'")
     if body.part_number != doc.part_number:
         clash = db.query(Document).filter(
             Document.repository_id == repo_id,

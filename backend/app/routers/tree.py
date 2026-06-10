@@ -24,8 +24,8 @@ def add_bom_entry(
     assembly = db.get(Document, assembly_id)
     if not assembly or assembly.repository_id != repo_id:
         raise HTTPException(status_code=404, detail="Assembly document not found")
-    if assembly.doc_type != "assembly":
-        raise HTTPException(status_code=400, detail="Target document is not an assembly")
+    if assembly.doc_type not in ("assembly", "part"):
+        raise HTTPException(status_code=400, detail="Target document is not an assembly or part")
 
     component = db.get(Document, body.component_id)
     if not component or component.repository_id != repo_id:

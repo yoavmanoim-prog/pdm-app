@@ -336,6 +336,7 @@ function EditDocumentForm({ repoId, doc, allDocuments, onDone, onCancel }) {
   }, [repoId, doc.id])
 
   const isAssembly = form.doc_type === 'assembly'
+  const canHaveSons = form.doc_type === 'assembly' || form.doc_type === 'part'
 
   const addSon = () => setSons(s => [...s, { id: null, part_number: '', qty: 1, position: '' }])
   const updateSon = (i, field, val) => setSons(s => s.map((x, idx) => idx === i ? { ...x, [field]: val } : x))
@@ -407,6 +408,7 @@ function EditDocumentForm({ repoId, doc, allDocuments, onDone, onCancel }) {
         <select value={form.doc_type} onChange={e => setForm(f => ({ ...f, doc_type: e.target.value }))} style={inputStyle}>
           <option value="detail">Detail</option>
           <option value="assembly">Assembly</option>
+          <option value="part">Part</option>
         </select>
       </div>
       <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
@@ -422,8 +424,8 @@ function EditDocumentForm({ repoId, doc, allDocuments, onDone, onCancel }) {
         </>
       )}
 
-      {/* BOM sons — only for assemblies */}
-      {isAssembly && (
+      {/* BOM sons — for assemblies and parts */}
+      {canHaveSons && (
         <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: '#555' }}>Component drawings (sons)</span>
