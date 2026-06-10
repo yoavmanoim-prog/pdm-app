@@ -234,7 +234,7 @@ def amend_commit(
         raise HTTPException(status_code=404, detail="Commit not found")
     if not commit.is_local:
         raise HTTPException(status_code=409, detail="Cannot amend a pushed commit — it is already on the remote vault")
-    old_author  = commit.author
+    old_author = commit.author
     old_message = commit.message
     if body.author is not None:
         commit.author = body.author
