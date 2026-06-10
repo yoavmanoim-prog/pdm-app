@@ -1,28 +1,30 @@
 services:
 
   # ── Local Vault ─────────────────────────────────────────────────────────────
-  # This is the engineer's local workspace — where they make changes and commits
+  # Engineer's local workspace — commits go here first, then pushed to AWS
   local-vault:
     build: ./backend
     ports:
-      - "8000:8000"           # access at http://localhost:8000
+      - "8000:8000"
     environment:
       DATABASE_URL: postgresql://pdm:pdm@local-db:5432/pdm
-      VAULT_MODE: local        # tells the app it is running as a local vault
-      REMOTE_VAULT_URL: http://remote-vault:8000  # internal Docker port (8001 is host-side only)
+      VAULT_MODE: local
+      # Push/Pull go to the real remote vault running on AWS (EKS)
+      REMOTE_VAULT_URL: https://d3df2y18th5fg7.cloudfront.net/api
       S3_BUCKET: "pdm-docs-production"
       AWS_REGION: us-east-1
       WATCH_BASE: /watch
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
     depends_on:
       local-db:
-        condition: service_healthy  # wait for postgres to be ready before starting
+        condition: service_healthy
     volumes:
-      - ./backend:/app         # live reload — code changes reflect instantly
-      - ~/.aws:/root/.aws:ro   # use local AWS credentials — no keys in this file
-      - ${HOME}:/watch:ro  # ${HOME} works on Mac, Linux and Windows (Docker Desktop)
+      - ./backend:/app
+      - ~/.aws:/root/.aws:ro
+      - ${HOME}:/watch:ro
 
   # ── Frontend ────────────────────────────────────────────────────────────────
-  # React dev server with hot reload — open http://localhost:5173
+  # React dev server — open http://localhost:5173
   frontend:
     image: node:22-alpine
     working_dir: /app
@@ -30,65 +32,30 @@ services:
     ports:
       - "5173:5173"
     environment:
-      # lets the Vite proxy reach the backend by Docker service name
       LOCAL_VAULT_URL: http://local-vault:8000
     volumes:
-      - ./frontend:/app                # live reload — edit files and browser updates instantly
-      - frontend_node_modules:/app/node_modules  # isolated from host node_modules
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
     depends_on:
       - local-vault
-
-  # ── Remote Vault ────────────────────────────────────────────────────────────
-  # This is the shared remote — like GitHub's servers
-  remote-vault:
-    build: ./backend
-    ports:
-      - "8001:8000"           # access at http://localhost:8001
-    environment:
-      DATABASE_URL: postgresql://pdm:pdm@remote-db:5432/pdm
-      VAULT_MODE: remote       # tells the app it is running as a remote vault
-      S3_BUCKET: ""
-      AWS_REGION: us-east-1
-    depends_on:
-      remote-db:
-        condition: service_healthy
-    volumes:
-      - ./backend:/app
 
   # ── Local Database ───────────────────────────────────────────────────────────
   local-db:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"   # expose to localhost so Alembic and tools can connect directly
+      - "5432:5432"
     environment:
       POSTGRES_DB: pdm
       POSTGRES_USER: pdm
       POSTGRES_PASSWORD: pdm
     volumes:
-      - local-db-data:/var/lib/postgresql/data  # persist data between restarts
+      - local-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pdm"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ── Remote Database ──────────────────────────────────────────────────────────
-  remote-db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: pdm
-      POSTGRES_USER: pdm
-      POSTGRES_PASSWORD: pdm
-    volumes:
-      - remote-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pdm"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-# named volumes so data survives container restarts
 volumes:
   local-db-data:
-  remote-db-data:
-  frontend_node_modules:   # keeps npm packages inside Docker, separate from host
+  frontend_node_modules:
