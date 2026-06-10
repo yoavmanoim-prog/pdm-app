@@ -97,18 +97,29 @@ def watch_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail=f"Watch directory no longer exists: {watch_path}")
 
     docs = db.query(Document).filter(Document.repository_id == repo_id).all()
-    doc_by_part = {d.part_number.upper(): d for d in docs}
+    doc_by_part = {}
+    for d in docs:
+        doc_by_part[d.part_number.upper()] = d
+        # also index by the short base part number (before " -" title separator)
+        short = d.part_number.split(' -')[0].strip().upper()
+        if short not in doc_by_part:
+            doc_by_part[short] = d
 
     results = []
     for pdf in sorted(watch_path.glob("*.pdf")):
-        candidate = pdf.stem.upper()
         file_hash = _hash_file(pdf)
-        doc = doc_by_part.get(candidate)
+        # look up by full stem first, then by short base part number
+        stem = pdf.stem
+        short_stem = stem.split(' -')[0].strip().upper()
+        doc = doc_by_part.get(stem.upper()) or doc_by_part.get(short_stem)
 
         if doc is None:
+            # pre-fill part_number and title by splitting the filename on " -"
+            parts = stem.split(' -', 1)
             results.append({
                 "filename": pdf.name,
-                "part_number": pdf.stem,
+                "part_number": parts[0].strip(),
+                "title": parts[1].strip() if len(parts) > 1 else '',
                 "status": "untracked",
                 "doc_id": None,
                 "hash": file_hash[:8],
