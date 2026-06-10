@@ -43,7 +43,8 @@ export const getDocumentCommits = (repoId, docId) =>
   req('GET', `/repos/${repoId}/documents/${docId}/commits`)
 
 // Commits
-export const getLog = (repoId, limit = 50) => req('GET', `/repos/${repoId}/log?limit=${limit}`)
+export const getLog = (repoId, limit = 50, branchId = null) =>
+  req('GET', `/repos/${repoId}/log?limit=${limit}${branchId ? `&branch_id=${branchId}` : ''}`)
 export const getDiff = (repoId, hash) => req('GET', `/repos/${repoId}/diff/${hash}`)
 export const createCommit = (repoId, formData) => req('POST', `/repos/${repoId}/commit`, formData)
 

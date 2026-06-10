@@ -145,18 +145,24 @@ async def create_commit(
 # ── Step 13 — commit log ───────────────────────────────────────────────────────
 
 @router.get("/{repo_id}/log", response_model=list[CommitResponse])
-def get_log(repo_id: uuid.UUID, limit: int = 50, db: Session = Depends(get_db)):
+def get_log(
+    repo_id: uuid.UUID,
+    limit: int = 50,
+    branch_id: str | None = None,   # uuid string or "main" for default branch
+    db: Session = Depends(get_db),
+):
     repo = db.get(Repository, repo_id)
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
 
-    return (
-        db.query(Commit)
-        .filter(Commit.repository_id == repo_id)
-        .order_by(desc(Commit.timestamp))
-        .limit(limit)
-        .all()
-    )
+    q = db.query(Commit).filter(Commit.repository_id == repo_id)
+
+    if branch_id == "main":
+        q = q.filter(Commit.branch_id.is_(None))
+    elif branch_id:
+        q = q.filter(Commit.branch_id == uuid.UUID(branch_id))
+
+    return q.order_by(desc(Commit.timestamp)).limit(limit).all()
 
 
 # ── Step 14 — commit diff ─────────────────────────────────────────────────────
