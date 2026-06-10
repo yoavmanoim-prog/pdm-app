@@ -124,6 +124,7 @@ async def upload_document(
     file: UploadFile = File(...),
     author: str = Form(...),
     message: str = Form("Initial upload"),
+    branch_id: uuid.UUID | None = Form(None),
     db: Session = Depends(get_db),
 ):
     doc = db.get(Document, doc_id)
@@ -171,7 +172,7 @@ async def upload_document(
 
     commit = Commit(
         repository_id=repo_id,
-        branch_id=None,
+        branch_id=branch_id,
         parent_id=parent.id if parent else None,
         author=author,
         message=message,

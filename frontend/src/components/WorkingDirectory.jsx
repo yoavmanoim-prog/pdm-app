@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { getWatchStatus, watchCommit, watchPreviewUrl } from '../api'
+import { getWatchStatus, watchCommit, watchPreviewUrl, listBranches } from '../api'
 import { useRepo } from '../context/RepoContext'
 
 const badge = {
@@ -117,8 +117,16 @@ function CommitForm({ repoId, file, onDone }) {
   const [partNumber, setPartNumber] = useState(file.part_number || '')
   const [title, setTitle]           = useState(file.title || '')
   const [docType, setDocType]       = useState('detail')
+  const [branchId, setBranchId]     = useState('')      // '' = main
+  const [branches, setBranches]     = useState([])
   const [loading, setLoading]       = useState(false)
   const [err, setErr]               = useState(null)
+
+  useEffect(() => {
+    listBranches(repoId)
+      .then(b => setBranches(b.filter(x => x.status === 'open')))
+      .catch(() => {})
+  }, [repoId])
 
   const handleSubmit = async e => {
     e.preventDefault()
@@ -130,6 +138,7 @@ function CommitForm({ repoId, file, onDone }) {
       fd.append('filename', file.filename)
       fd.append('author', author)
       fd.append('message', message)
+      if (branchId) fd.append('branch_id', branchId)
       if (file.doc_id) {
         fd.append('doc_id', file.doc_id)
       } else {
@@ -167,6 +176,10 @@ function CommitForm({ repoId, file, onDone }) {
             onChange={e => setTitle(e.target.value)} style={inputStyle} />
         </>
       )}
+      <select value={branchId} onChange={e => setBranchId(e.target.value)} style={inputStyle}>
+        <option value="">main (default)</option>
+        {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+      </select>
       <input required placeholder="Your name" value={author}
         onChange={e => setAuthor(e.target.value)} style={inputStyle} />
       <input required placeholder="Commit message" value={message}
