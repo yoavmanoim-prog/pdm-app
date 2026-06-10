@@ -5,8 +5,13 @@ from sqlalchemy import desc
 from app.database import get_db
 from app.models.repository import Repository
 from app.models.document import Document
-from app.models.commit import Commit
+from app.models.commit import Commit, CommitFile
+from app.models.branch import Branch
+from app.models.bom import BOMEntry
+from app.models.revision import Revision
+from app.models.audit import AuditEvent
 from app.schemas.repositories import RepositoryCreate, RepositoryResponse, RepositoryListResponse
+from app import storage
 
 # all routes in this file are prefixed with /repos
 router = APIRouter(prefix="/repos", tags=["repositories"])
@@ -77,5 +82,47 @@ def delete_repository(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     repo = db.get(Repository, repo_id)
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
+
+    doc_ids = [d.id for d in db.query(Document.id).filter(Document.repository_id == repo_id)]
+    commit_ids = [c.id for c in db.query(Commit.id).filter(Commit.repository_id == repo_id)]
+
+    # collect S3 keys before any DB deletes
+    s3_keys = []
+    if commit_ids:
+        s3_keys = [
+            cf.s3_key_pdf
+            for cf in db.query(CommitFile.s3_key_pdf).filter(CommitFile.commit_id.in_(commit_ids))
+            if cf.s3_key_pdf
+        ]
+
+    # delete leaf records first (no children pointing to them)
+    if doc_ids:
+        db.query(BOMEntry).filter(BOMEntry.assembly_id.in_(doc_ids)).delete(synchronize_session=False)
+        db.query(BOMEntry).filter(BOMEntry.component_id.in_(doc_ids)).delete(synchronize_session=False)
+        db.query(Revision).filter(Revision.document_id.in_(doc_ids)).delete(synchronize_session=False)
+    if commit_ids:
+        db.query(CommitFile).filter(CommitFile.commit_id.in_(commit_ids)).delete(synchronize_session=False)
+
+    db.query(AuditEvent).filter(AuditEvent.repository_id == repo_id).delete(synchronize_session=False)
+
+    # break the commit ↔ branch circular FK before deleting either table
+    db.query(Branch).filter(Branch.repository_id == repo_id).update(
+        {"base_commit_id": None}, synchronize_session=False
+    )
+    # break the commit self-reference (parent_id) so bulk delete works
+    if commit_ids:
+        db.query(Commit).filter(Commit.repository_id == repo_id).update(
+            {"parent_id": None}, synchronize_session=False
+        )
+
+    db.query(Commit).filter(Commit.repository_id == repo_id).delete(synchronize_session=False)
+    db.query(Branch).filter(Branch.repository_id == repo_id).delete(synchronize_session=False)
+    if doc_ids:
+        db.query(Document).filter(Document.repository_id == repo_id).delete(synchronize_session=False)
+
     db.delete(repo)
     db.commit()
+
+    # drain S3 files after the DB transaction succeeds
+    for key in s3_keys:
+        storage.delete_file(key)
