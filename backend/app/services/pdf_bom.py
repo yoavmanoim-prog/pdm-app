@@ -101,10 +101,11 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
         .all()
     )
 
-    # BOM creation — direct substring match against the part number
+    # BOM creation — match on base part number (strips " -Title" suffix if present)
     created = 0
     for candidate in repo_docs:
-        if candidate.part_number.upper() not in text_upper:
+        base = candidate.part_number.split(' -')[0].strip().upper()
+        if base not in text_upper:
             continue
         if db.query(BOMEntry).filter(
             BOMEntry.assembly_id == doc_id,
@@ -121,12 +122,11 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
         logger.info("pdf_bom: auto-linked %s as son of %s", candidate.part_number, doc.part_number)
 
     # Missing detection — regex tokens not found in the repo (best-effort)
-    # Build known set: include both full part_number strings AND short tokens
-    # extracted from them (handles cases like "FW-MA-0000 -Main Assembly Title")
+    # Build known set: full part_number string + base part number (before " -" title separator)
     known = set()
     for d in [*repo_docs, doc]:
         known.add(d.part_number.upper())
-        known.update(m.group() for m in PART_NUMBER_RE.finditer(d.part_number.upper()))
+        known.add(d.part_number.split(' -')[0].strip().upper())
     regex_found = {m.group() for m in PART_NUMBER_RE.finditer(text_upper)}
     missing = sorted(regex_found - known)
 
@@ -165,7 +165,8 @@ def retro_link_fathers(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session) -> in
     if not assembly_docs:
         return 0
 
-    target = doc.part_number.upper()
+    # use base part number for matching (strips " -Title" suffix if present)
+    target = doc.part_number.split(' -')[0].strip().upper()
     created = 0
 
     for assembly in assembly_docs:
