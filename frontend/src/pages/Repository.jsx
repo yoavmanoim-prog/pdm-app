@@ -159,13 +159,23 @@ function RepositoryInner() {
   )
 }
 
-// Branches tab extracted so it can show a create-branch form with refresh on submit
 function BranchesTab({ repoId, branches }) {
   const { refresh } = useRepo()
-  const [name, setName]     = useState('')
-  const [author, setAuthor] = useState('')
+  const [name, setName]         = useState('')
+  const [author, setAuthor]     = useState('')
   const [creating, setCreating] = useState(false)
-  const [err, setErr]       = useState(null)
+  const [err, setErr]           = useState(null)
+  const [expanded, setExpanded] = useState({})      // branchId → boolean
+  const [commits, setCommits]   = useState({})      // branchId → commit[]
+
+  const toggle = async (id) => {
+    const next = !expanded[id]
+    setExpanded(e => ({ ...e, [id]: next }))
+    if (next && !commits[id]) {
+      const log = await getLog(repoId, 50, id)
+      setCommits(c => ({ ...c, [id]: log }))
+    }
+  }
 
   const handleCreate = async e => {
     e.preventDefault()
@@ -174,35 +184,57 @@ function BranchesTab({ repoId, branches }) {
     try {
       await createBranch(repoId, { name, created_by: author })
       setName(''); setAuthor('')
-      refresh()  // all tabs update instantly
+      refresh()
     } catch (e) { setErr(e.message) }
     finally { setCreating(false) }
   }
 
+  // default "main" branch is always at the top — commits with no branch_id
+  const allBranches = [
+    { id: 'main', name: 'main', status: 'default', created_by: 'system', created_at: null },
+    ...branches,
+  ]
+
   return (
     <div>
       <form onSubmit={handleCreate} style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <input required placeholder="Branch name" value={name} onChange={e => setName(e.target.value)}
-          style={inputStyle} />
-        <input required placeholder="Your name" value={author} onChange={e => setAuthor(e.target.value)}
-          style={inputStyle} />
-        <button type="submit" disabled={creating} style={btnSmall}>
-          {creating ? 'Creating…' : '+ New Branch'}
-        </button>
+        <input required placeholder="Branch name" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
+        <input required placeholder="Your name" value={author} onChange={e => setAuthor(e.target.value)} style={inputStyle} />
+        <button type="submit" disabled={creating} style={btnSmall}>{creating ? 'Creating…' : '+ New Branch'}</button>
         {err && <span style={{ color: 'red', fontSize: '13px', alignSelf: 'center' }}>{err}</span>}
       </form>
 
-      {branches.length === 0 && <p style={{ color: '#888' }}>No branches yet.</p>}
-      {branches.map(b => (
-        <div key={b.id} style={rowStyle}>
-          <span style={{ flex: 1 }}>{b.name}</span>
-          <span style={{ fontSize: '12px', marginRight: '12px', color: b.status === 'open' ? 'green' : '#888' }}>{b.status}</span>
-          <span style={{ fontSize: '12px', color: '#888' }}>by {b.created_by} · {new Date(b.created_at).toLocaleDateString()}</span>
-          {b.status === 'open' && (
-            <Link to={`/repos/${repoId}/branches/${b.id}`}
-              style={{ ...btnSmall, textDecoration: 'none', marginLeft: '8px' }}>
-              Merge Request
-            </Link>
+      {allBranches.map(b => (
+        <div key={b.id} style={{ marginBottom: '4px' }}>
+          {/* branch row */}
+          <div style={{ ...rowStyle, cursor: 'pointer' }} onClick={() => toggle(b.id)}>
+            <span style={{ fontSize: '14px', marginRight: '8px', color: '#999', transition: 'transform 0.15s', display: 'inline-block', transform: expanded[b.id] ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+            <span style={{ flex: 1, fontWeight: b.id === 'main' ? 600 : 400 }}>{b.name}</span>
+            <span style={{ fontSize: '12px', marginRight: '12px', color: b.id === 'main' ? '#1a1a2e' : b.status === 'open' ? 'green' : '#888' }}>
+              {b.id === 'main' ? 'default' : b.status}
+            </span>
+            {b.created_at && <span style={{ fontSize: '12px', color: '#aaa' }}>by {b.created_by} · {new Date(b.created_at).toLocaleDateString()}</span>}
+            {b.status === 'open' && (
+              <Link to={`/repos/${repoId}/branches/${b.id}`} onClick={e => e.stopPropagation()}
+                style={{ ...btnSmall, textDecoration: 'none', marginLeft: '8px' }}>
+                Merge Request
+              </Link>
+            )}
+          </div>
+
+          {/* commit list — shown when expanded */}
+          {expanded[b.id] && (
+            <div style={{ marginLeft: '28px', borderLeft: '2px solid #eee', paddingLeft: '12px', marginBottom: '8px' }}>
+              {!commits[b.id] && <p style={{ color: '#aaa', fontSize: '13px', margin: '6px 0' }}>Loading…</p>}
+              {commits[b.id]?.length === 0 && <p style={{ color: '#aaa', fontSize: '13px', margin: '6px 0' }}>No commits on this branch yet.</p>}
+              {commits[b.id]?.map(c => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px', borderRadius: '4px', marginBottom: '3px', background: '#fafafa', fontSize: '13px' }}>
+                  <code style={{ background: '#f0f0f0', padding: '1px 6px', borderRadius: '3px', fontSize: '12px' }}>{c.short_hash}</code>
+                  <span style={{ flex: 1 }}>{c.message}</span>
+                  <span style={{ color: '#aaa', fontSize: '11px' }}>{c.author} · {new Date(c.timestamp).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       ))}
