@@ -8,7 +8,7 @@ from app.models.repository import Repository
 from app.models.document import Document
 from app.models.commit import Commit, CommitFile
 from app.models.audit import AuditEvent
-from app.schemas.commits import CommitResponse
+from app.schemas.commits import CommitResponse, CommitFileResponse
 from app.config import settings
 from app.protocol.engine import run_commit_checks
 from app import storage
@@ -162,7 +162,41 @@ def get_log(
     elif branch_id:
         q = q.filter(Commit.branch_id == uuid.UUID(branch_id))
 
-    return q.order_by(desc(Commit.timestamp)).limit(limit).all()
+    commits = q.order_by(desc(Commit.timestamp)).limit(limit).all()
+
+    # build a doc_id → part_number lookup so the frontend can show drawing IDs
+    doc_ids = {f.document_id for c in commits for f in c.files}
+    part_numbers = {
+        d.id: d.part_number
+        for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()
+    } if doc_ids else {}
+
+    result = []
+    for c in commits:
+        files = [
+            CommitFileResponse(
+                id=f.id,
+                document_id=f.document_id,
+                part_number=part_numbers.get(f.document_id),
+                s3_key_pdf=f.s3_key_pdf,
+                content_hash=f.content_hash,
+                change_type=f.change_type,
+            )
+            for f in c.files
+        ]
+        result.append(CommitResponse(
+            id=c.id,
+            repository_id=c.repository_id,
+            branch_id=c.branch_id,
+            parent_id=c.parent_id,
+            author=c.author,
+            message=c.message,
+            short_hash=c.short_hash,
+            is_local=c.is_local,
+            timestamp=c.timestamp,
+            files=files,
+        ))
+    return result
 
 
 # ── Step 14 — commit diff ─────────────────────────────────────────────────────
