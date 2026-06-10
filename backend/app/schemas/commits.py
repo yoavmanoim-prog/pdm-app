@@ -15,6 +15,11 @@ class CommitFileResponse(BaseModel):
         from_attributes = True
 
 
+class CommitAmend(BaseModel):
+    author: str | None = None
+    message: str | None = None
+
+
 class CommitResponse(BaseModel):
     id: uuid.UUID
     repository_id: uuid.UUID

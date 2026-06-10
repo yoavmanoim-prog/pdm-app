@@ -23,6 +23,7 @@ def create_repository(body: RepositoryCreate, db: Session = Depends(get_db)):
         name=body.name,
         description=body.description,
         remote_url=body.remote_url,
+        watch_path=body.watch_path,
     )
     db.add(repo)
     db.commit()

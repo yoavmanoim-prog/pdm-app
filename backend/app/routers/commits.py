@@ -3,12 +3,13 @@ import hashlib
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.models.repository import Repository
 from app.models.document import Document
 from app.models.commit import Commit, CommitFile
 from app.models.audit import AuditEvent
-from app.schemas.commits import CommitResponse, CommitFileResponse
+from app.schemas.commits import CommitResponse, CommitFileResponse, CommitAmend
 from app.config import settings
 from app.protocol.engine import run_commit_checks
 from app import storage
@@ -111,7 +112,11 @@ async def create_commit(
         protocol_violations=[],
     )
     db.add(commit)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Commit hash collision — please retry")
 
     commit_file = CommitFile(
         commit_id=commit.id,
@@ -210,6 +215,48 @@ def get_commit(repo_id: uuid.UUID, short_hash: str, db: Session = Depends(get_db
     )
     if not commit:
         raise HTTPException(status_code=404, detail="Commit not found")
+    return commit
+
+
+@router.patch("/{repo_id}/commits/{short_hash}", response_model=CommitResponse)
+def amend_commit(
+    repo_id: uuid.UUID,
+    short_hash: str,
+    body: CommitAmend,
+    db: Session = Depends(get_db),
+):
+    commit = (
+        db.query(Commit)
+        .filter(Commit.repository_id == repo_id, Commit.short_hash == short_hash)
+        .first()
+    )
+    if not commit:
+        raise HTTPException(status_code=404, detail="Commit not found")
+    if not commit.is_local:
+        raise HTTPException(status_code=409, detail="Cannot amend a pushed commit — it is already on the remote vault")
+    old_author  = commit.author
+    old_message = commit.message
+    if body.author is not None:
+        commit.author = body.author
+    if body.message is not None:
+        commit.message = body.message
+    db.add(AuditEvent(
+        repository_id=repo_id,
+        actor=commit.author,
+        action="amend_commit",
+        entity_type="commit",
+        entity_id=str(commit.id),
+        details={
+            "commit_hash": commit.short_hash,
+            "old_author": old_author,
+            "new_author": commit.author,
+            "old_message": old_message,
+            "new_message": commit.message,
+        },
+        is_breach=False,
+    ))
+    db.commit()
+    db.refresh(commit)
     return commit
 
 

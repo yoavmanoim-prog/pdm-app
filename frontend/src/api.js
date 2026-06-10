@@ -37,6 +37,8 @@ export const listDocuments = repoId => req('GET', `/repos/${repoId}/documents/`)
 export const createDocument = (repoId, body) => req('POST', `/repos/${repoId}/documents/`, body)
 export const getDocument = (repoId, docId) => req('GET', `/repos/${repoId}/documents/${docId}`)
 export const editDocument = (repoId, docId, body) => req('PATCH', `/repos/${repoId}/documents/${docId}`, body)
+export const getDocumentBom = (repoId, docId) => req('GET', `/repos/${repoId}/documents/${docId}/bom`)
+export const getDocumentLatestCommit = (repoId, docId) => req('GET', `/repos/${repoId}/documents/${docId}/latest-commit`)
 export const uploadDocument = (repoId, docId, formData) =>
   req('POST', `/repos/${repoId}/documents/${docId}/upload`, formData)
 // returns all versions of a document with presigned PDF URLs for each version and the one before it
@@ -48,6 +50,7 @@ export const getLog = (repoId, limit = 50, branchId = null) =>
   req('GET', `/repos/${repoId}/log?limit=${limit}${branchId ? `&branch_id=${branchId}` : ''}`)
 export const getDiff = (repoId, hash) => req('GET', `/repos/${repoId}/diff/${hash}`)
 export const createCommit = (repoId, formData) => req('POST', `/repos/${repoId}/commit`, formData)
+export const amendCommit = (repoId, shortHash, body) => req('PATCH', `/repos/${repoId}/commits/${shortHash}`, body)
 
 // Branches
 export const listBranches = repoId => req('GET', `/repos/${repoId}/branches/`)
@@ -62,6 +65,7 @@ export const getTree = repoId => req('GET', `/repos/${repoId}/tree`)
 export const validateTree = repoId => req('GET', `/repos/${repoId}/tree/validate`)
 export const addBomEntry = (repoId, assemblyId, body) =>
   req('POST', `/repos/${repoId}/bom?assembly_id=${assemblyId}`, body)
+export const removeBomEntry = (repoId, entryId) => req('DELETE', `/repos/${repoId}/bom/${entryId}`)
 
 // Sync
 export const syncStatus = repoId => req('GET', `/sync/status/${repoId}`)
