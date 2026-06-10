@@ -139,13 +139,21 @@ function RepositoryInner() {
             <Stat label="No Drawing" value={validation.missing_drawing} color="red" />
           </div>
           {validation.documents.map(d => (
-            <div key={d.document_id} style={{ ...rowStyle, opacity: d.has_drawing ? 1 : 0.6 }}>
+            <div key={d.document_id} style={{ ...rowStyle, opacity: d.has_drawing ? 1 : 0.6, flexWrap: 'wrap' }}>
               <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
               <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
               {d.current_revision
                 ? <span style={{ color: 'green', fontSize: '12px', marginRight: '8px' }}>Rev {d.current_revision}</span>
                 : <span style={{ color: '#888', fontSize: '12px', marginRight: '8px' }}>Unreleased</span>}
-              {!d.has_drawing && <span style={{ color: 'red', fontSize: '12px' }}>⚠ No drawing</span>}
+              {!d.has_drawing && <span style={{ color: 'red', fontSize: '12px', marginRight: '8px' }}>⚠ No drawing</span>}
+              {d.missing_components?.length > 0 && (
+                <span
+                  style={{ color: '#e67e22', fontSize: '12px', cursor: 'default' }}
+                  title={`Missing from repo: ${d.missing_components.join(', ')}`}
+                >
+                  ⚠ {d.missing_components.length} missing part{d.missing_components.length > 1 ? 's' : ''}
+                </span>
+              )}
             </div>
           ))}
         </div>
