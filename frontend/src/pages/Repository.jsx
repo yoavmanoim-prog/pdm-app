@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument } from '../api'
+import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 
@@ -247,24 +247,6 @@ function BranchesTab({ repoId, branches }) {
 function DocumentsTab({ repoId, documents }) {
   const { refresh } = useRepo()
   const [editing, setEditing] = useState(null)   // doc id being edited
-  const [form, setForm]       = useState({})
-  const [err, setErr]         = useState(null)
-
-  const startEdit = (d, e) => {
-    e.preventDefault()
-    setEditing(d.id)
-    setForm({ part_number: d.part_number, title: d.title, doc_type: d.doc_type })
-    setErr(null)
-  }
-
-  const save = async (docId) => {
-    setErr(null)
-    try {
-      await editDocument(repoId, docId, form)
-      setEditing(null)
-      refresh()
-    } catch (e) { setErr(e.message) }
-  }
 
   return (
     <div>
@@ -272,41 +254,217 @@ function DocumentsTab({ repoId, documents }) {
         <Link to={`/repos/${repoId}/upload`} style={{ ...btnSmall, textDecoration: 'none' }}>+ Upload Drawing</Link>
       </div>
       {documents.length === 0 && <p style={{ color: '#888' }}>No documents yet.</p>}
-      {err && <p style={{ color: 'red', fontSize: '13px' }}>{err}</p>}
       {documents.map(d => (
         <div key={d.id}>
-          {editing === d.id ? (
-            <div style={{ ...rowStyle, flexWrap: 'wrap', gap: '8px', background: '#f9f9f9' }}>
-              <input value={form.part_number} onChange={e => setForm(f => ({ ...f, part_number: e.target.value }))}
-                style={{ ...inputStyle, width: '140px' }} placeholder="Part number" />
-              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                style={{ ...inputStyle, flex: 1 }} placeholder="Title" />
-              <select value={form.doc_type} onChange={e => setForm(f => ({ ...f, doc_type: e.target.value }))} style={inputStyle}>
-                <option value="detail">Detail</option>
-                <option value="assembly">Assembly</option>
-              </select>
-              <button onClick={() => save(d.id)} style={btnSmall}>Save</button>
-              <button onClick={() => setEditing(null)} style={{ ...btnSmall, background: '#aaa' }}>Cancel</button>
-            </div>
-          ) : (
-            <div style={{ position: 'relative' }}>
-              <Link to={`/repos/${repoId}/documents/${d.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-                <div style={{ ...rowStyle, cursor: 'pointer', paddingRight: '60px' }}>
-                  <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
-                  <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
-                  <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '3px' }}>{d.doc_type}</span>
-                  <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>View →</span>
-                </div>
-              </Link>
-              <button onClick={e => startEdit(d, e)}
-                style={{ position: 'absolute', top: '50%', right: '10px', transform: 'translateY(-50%)', background: 'none', border: '1px solid #ddd', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px', color: '#888' }}>
-                Edit
-              </button>
-            </div>
+          {/* document row — always visible */}
+          <div style={{ position: 'relative' }}>
+            <Link to={`/repos/${repoId}/documents/${d.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div style={{
+                ...rowStyle,
+                cursor: 'pointer',
+                paddingRight: '60px',
+                borderRadius: editing === d.id ? '4px 4px 0 0' : '4px',
+                marginBottom: editing === d.id ? 0 : '6px',
+                borderBottom: editing === d.id ? 'none' : '1px solid #eee',
+              }}>
+                <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
+                <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
+                <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '3px' }}>{d.doc_type}</span>
+                <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>View →</span>
+              </div>
+            </Link>
+            <button
+              onClick={e => { e.preventDefault(); setEditing(editing === d.id ? null : d.id) }}
+              style={{ position: 'absolute', top: '50%', right: '10px', transform: 'translateY(-50%)', background: editing === d.id ? '#1a1a2e' : 'none', color: editing === d.id ? '#fff' : '#888', border: '1px solid #ddd', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px' }}>
+              {editing === d.id ? 'Close' : 'Edit'}
+            </button>
+          </div>
+
+          {/* full edit form — shown below the row when editing */}
+          {editing === d.id && (
+            <EditDocumentForm
+              repoId={repoId}
+              doc={d}
+              allDocuments={documents}
+              onDone={() => { setEditing(null); refresh() }}
+              onCancel={() => setEditing(null)}
+            />
           )}
         </div>
       ))}
     </div>
+  )
+}
+
+function EditDocumentForm({ repoId, doc, allDocuments, onDone, onCancel }) {
+  const [form, setForm]             = useState({ part_number: doc.part_number, title: doc.title, doc_type: doc.doc_type, author: '', message: '' })
+  const [commitHash, setCommitHash] = useState(null)
+  const [sons, setSons]             = useState([])
+  const [origSonIds, setOrigSonIds] = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [loadError, setLoadError]   = useState(null)   // load-time error — blocks the form entirely
+  const [saving, setSaving]         = useState(false)
+  const [saveErr, setSaveErr]       = useState(null)   // save-time error
+
+  const otherDocs = allDocuments.filter(d => d.id !== doc.id)
+
+  useEffect(() => {
+    let mounted = true   // prevent state updates after unmount
+    Promise.all([
+      getDocumentLatestCommit(repoId, doc.id),
+      getDocumentBom(repoId, doc.id),
+    ]).then(([latest, bom]) => {
+      if (!mounted) return
+      if (latest?.commit_hash) {
+        // only overwrite if the user hasn't started typing yet
+        setForm(f => ({
+          ...f,
+          author:  f.author  === '' ? latest.author  : f.author,
+          message: f.message === '' ? latest.message : f.message,
+        }))
+        setCommitHash(latest.commit_hash)
+      }
+      const loaded = bom.map(e => ({ id: e.id, part_number: e.part_number || '', qty: e.quantity, position: e.position || '' }))
+      setSons(loaded)
+      setOrigSonIds(loaded.map(s => s.id))
+    }).catch(e => {
+      if (mounted) setLoadError(e.message)
+    }).finally(() => {
+      if (mounted) setLoading(false)
+    })
+    return () => { mounted = false }
+  }, [repoId, doc.id])
+
+  const isAssembly = form.doc_type === 'assembly'
+
+  const addSon = () => setSons(s => [...s, { id: null, part_number: '', qty: 1, position: '' }])
+  const updateSon = (i, field, val) => setSons(s => s.map((x, idx) => idx === i ? { ...x, [field]: val } : x))
+  const removeSon = i => setSons(s => s.filter((_, idx) => idx !== i))
+
+  const handleSubmit = async e => {
+    e.preventDefault()
+    if (commitHash && !form.author.trim()) return setSaveErr('Author is required')
+    if (commitHash && !form.message.trim()) return setSaveErr('Commit message is required')
+    setSaving(true); setSaveErr(null)
+    try {
+      // 1. update document metadata
+      await editDocument(repoId, doc.id, { part_number: form.part_number, title: form.title, doc_type: form.doc_type })
+
+      // 2. amend the latest commit's author and message (skipped if doc has no commits)
+      if (commitHash) {
+        await amendCommit(repoId, commitHash, { author: form.author, message: form.message })
+      }
+
+      // 3. reconcile BOM — swallow 404s on removal (concurrent deletes), bubble real errors
+      const currentIds = sons.filter(s => s.id).map(s => s.id)
+      const removed = origSonIds.filter(id => !currentIds.includes(id))
+      await Promise.all(removed.map(id => removeBomEntry(repoId, id).catch(() => {})))
+
+      const docByPart = Object.fromEntries(otherDocs.map(d => [d.part_number.toUpperCase(), d]))
+      for (const son of sons.filter(s => !s.id && s.part_number.trim())) {
+        const comp = docByPart[son.part_number.toUpperCase()]
+        if (!comp) continue
+        await addBomEntry(repoId, doc.id, {
+          component_id: comp.id,
+          quantity: parseInt(son.qty) || 1,
+          position: son.position || null,
+          item_type: comp.doc_type === 'assembly' ? 'assembly' : 'part',
+        }).catch(e => {
+          // silently skip duplicate entries (409), surface all other failures
+          if (!e.message.includes('already in this assembly')) throw e
+        })
+      }
+
+      onDone()
+    } catch (e) {
+      setSaveErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return (
+    <div style={{ padding: '12px 16px', background: '#f9f9f9', border: '1px solid #eee', borderTop: 'none', borderRadius: '0 0 4px 4px', marginBottom: '6px', fontSize: '13px', color: '#888' }}>
+      Loading…
+    </div>
+  )
+
+  // if the load itself failed, block the form entirely — don't let users save against incomplete state
+  if (loadError) return (
+    <div style={{ padding: '12px 16px', background: '#fff3cd', border: '1px solid #eee', borderTop: 'none', borderRadius: '0 0 4px 4px', marginBottom: '6px', fontSize: '13px', color: '#856404', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span>Failed to load: {loadError}</span>
+      <button type="button" onClick={onCancel} style={{ ...btnSmall, background: '#aaa' }}>Close</button>
+    </div>
+  )
+
+  return (
+    <form onSubmit={handleSubmit} style={{ padding: '14px 16px', background: '#f9f9f9', border: '1px solid #eee', borderTop: 'none', borderRadius: '0 0 4px 4px', marginBottom: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+
+      {/* Document metadata */}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <input value={form.part_number} onChange={e => setForm(f => ({ ...f, part_number: e.target.value }))}
+          style={{ ...inputStyle, flex: 1 }} placeholder="Part number" required />
+        <select value={form.doc_type} onChange={e => setForm(f => ({ ...f, doc_type: e.target.value }))} style={inputStyle}>
+          <option value="detail">Detail</option>
+          <option value="assembly">Assembly</option>
+        </select>
+      </div>
+      <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+        style={inputStyle} placeholder="Title" required />
+
+      {/* Commit attribution — only shown when there is a prior commit to amend */}
+      {commitHash && (
+        <>
+          <input value={form.author} onChange={e => setForm(f => ({ ...f, author: e.target.value }))}
+            style={inputStyle} placeholder="Author *" required />
+          <input value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
+            style={inputStyle} placeholder="Commit message *" required />
+        </>
+      )}
+
+      {/* BOM sons — only for assemblies */}
+      {isAssembly && (
+        <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '10px 12px', background: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#555' }}>Component drawings (sons)</span>
+            <button type="button" onClick={addSon}
+              style={{ fontSize: '12px', padding: '2px 10px', border: '1px solid #1a1a2e', borderRadius: '4px', cursor: 'pointer', background: 'none', color: '#1a1a2e' }}>
+              + Add
+            </button>
+          </div>
+          {sons.length === 0 && (
+            <p style={{ fontSize: '12px', color: '#aaa', margin: 0 }}>No components yet — click + Add to link child drawings.</p>
+          )}
+          {sons.map((s, i) => (
+            <div key={i} style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+              <input placeholder="Part number" value={s.part_number}
+                onChange={e => updateSon(i, 'part_number', e.target.value)}
+                list={`edit-docs-list-${i}`}
+                style={{ ...inputStyle, flex: 2 }}
+                readOnly={!!s.id}
+              />
+              <datalist id={`edit-docs-list-${i}`}>
+                {otherDocs.map(d => <option key={d.id} value={d.part_number}>{d.title}</option>)}
+              </datalist>
+              <input placeholder="Qty" type="number" min="1" value={s.qty}
+                onChange={e => updateSon(i, 'qty', e.target.value)}
+                style={{ ...inputStyle, width: '56px' }} />
+              <input placeholder="Pos" value={s.position}
+                onChange={e => updateSon(i, 'position', e.target.value)}
+                style={{ ...inputStyle, width: '56px' }} />
+              <button type="button" onClick={() => removeSon(i)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: '16px', padding: '0 4px' }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {saveErr && <p style={{ color: 'red', margin: 0, fontSize: '13px' }}>{saveErr}</p>}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button type="submit" disabled={saving} style={btnSmall}>{saving ? 'Saving…' : 'Save'}</button>
+        <button type="button" onClick={onCancel} style={{ ...btnSmall, background: '#aaa' }}>Cancel</button>
+      </div>
+    </form>
   )
 }
 
