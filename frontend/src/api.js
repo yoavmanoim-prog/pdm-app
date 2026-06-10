@@ -59,6 +59,8 @@ export const executeMerge = (repoId, branchId, author) =>
 // Product tree
 export const getTree = repoId => req('GET', `/repos/${repoId}/tree`)
 export const validateTree = repoId => req('GET', `/repos/${repoId}/tree/validate`)
+export const addBomEntry = (repoId, assemblyId, body) =>
+  req('POST', `/repos/${repoId}/bom?assembly_id=${assemblyId}`, body)
 
 // Sync
 export const syncStatus = repoId => req('GET', `/sync/status/${repoId}`)
