@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 
@@ -10,7 +11,10 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
 
-# Matches engineering part number formats: EVC-SA-8000, FW-PT-0001, ASM-001-1234
+logger = logging.getLogger(__name__)
+
+# Used only for detecting MISSING parts (not for BOM creation).
+# BOM creation uses direct substring search so any naming convention works.
 PART_NUMBER_RE = re.compile(r'\b[A-Z]{2,6}-[A-Z]{2,6}-\d{3,8}\b')
 
 
@@ -22,10 +26,6 @@ def _extract_text(pdf_bytes: bytes) -> str:
             if t:
                 parts.append(t)
     return "\n".join(parts)
-
-
-def _extract_part_numbers(text: str) -> set:
-    return {m.group() for m in PART_NUMBER_RE.finditer(text.upper())}
 
 
 def _latest_commit_file(doc_id: uuid.UUID, repo_id: uuid.UUID, db: Session):
@@ -40,11 +40,13 @@ def _latest_commit_file(doc_id: uuid.UUID, repo_id: uuid.UUID, db: Session):
 
 def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session) -> dict:
     """
-    Scan a committed PDF for part numbers and auto-create BOM son entries for
-    any that match existing documents in the repository.
+    Scan a committed PDF and auto-create BOM son entries.
 
-    Part numbers found in the PDF but not yet in the repo are stored in the
-    commit's diff_report["missing_components"] so validate_tree can surface them.
+    Uses direct substring search against known repo part numbers — works with
+    any naming convention, no regex required for BOM creation.
+
+    Also records unmatched regex-matched tokens as missing_components for
+    the validate tab (best-effort, requires AAA-BB-0000 format).
 
     Returns {"created": int, "missing": list[str]}
     """
@@ -57,30 +59,24 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
         .filter(Document.repository_id == repo_id, Document.id != doc_id)
         .all()
     )
-    repo_by_part = {d.part_number.upper(): d for d in repo_docs}
-
-    text = _extract_text(pdf_bytes)
-    found = _extract_part_numbers(text)
-    found.discard(doc.part_number.upper())
-
-    if not found:
+    if not repo_docs:
         return {"created": 0, "missing": []}
 
+    text_upper = _extract_text(pdf_bytes).upper()
+    if not text_upper.strip():
+        logger.info("pdf_bom: no extractable text in PDF for doc %s (image-based?)", doc_id)
+        return {"created": 0, "missing": []}
+
+    # BOM creation — direct substring match, works with any part number format
     created = 0
-    missing = []
-
-    for pn in found:
-        if pn not in repo_by_part:
-            missing.append(pn)
+    for candidate in repo_docs:
+        if candidate.part_number.upper() not in text_upper:
             continue
-
-        candidate = repo_by_part[pn]
         if db.query(BOMEntry).filter(
             BOMEntry.assembly_id == doc_id,
             BOMEntry.component_id == candidate.id,
         ).first():
             continue
-
         db.add(BOMEntry(
             assembly_id=doc_id,
             component_id=candidate.id,
@@ -88,13 +84,18 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
             item_type="assembly" if candidate.doc_type == "assembly" else "part",
         ))
         created += 1
+        logger.info("pdf_bom: auto-linked %s as son of %s", candidate.part_number, doc.part_number)
 
-    # persist missing parts in the latest commit for validate warnings
+    # Missing detection — regex tokens not found in the repo (best-effort)
+    known = {d.part_number.upper() for d in repo_docs} | {doc.part_number.upper()}
+    regex_found = {m.group() for m in PART_NUMBER_RE.finditer(text_upper)}
+    missing = sorted(regex_found - known)
+
     if missing:
         cf = _latest_commit_file(doc_id, repo_id, db)
         if cf:
             report = dict(cf.commit.diff_report or {})
-            report["missing_components"] = sorted(missing)
+            report["missing_components"] = missing
             cf.commit.diff_report = report
 
     if created or missing:
@@ -105,9 +106,8 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
 
 def retro_link_fathers(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session) -> int:
     """
-    When a new document is committed, scan every existing assembly/part PDF in
-    S3 to find any that reference this document's part number.
-    Creates BOM entries retroactively and clears the part from missing_components.
+    When a new document is committed, scan existing assembly/part PDFs in S3
+    using direct substring search to find retroactive parent references.
     Returns the number of new BOM entries created.
     """
     doc = db.get(Document, doc_id)
@@ -134,7 +134,6 @@ def retro_link_fathers(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session) -> in
         if not cf or not cf.s3_key_pdf:
             continue
 
-        # skip if already linked
         if db.query(BOMEntry).filter(
             BOMEntry.assembly_id == assembly.id,
             BOMEntry.component_id == doc_id,
@@ -142,12 +141,12 @@ def retro_link_fathers(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session) -> in
             continue
 
         try:
-            pdf_bytes = storage.download_file(cf.s3_key_pdf)
-            found = _extract_part_numbers(_extract_text(pdf_bytes))
-        except Exception:
+            text_upper = _extract_text(storage.download_file(cf.s3_key_pdf)).upper()
+        except Exception as e:
+            logger.warning("pdf_bom: could not read S3 PDF for %s: %s", assembly.part_number, e)
             continue
 
-        if target not in found:
+        if target not in text_upper:
             continue
 
         db.add(BOMEntry(
@@ -157,11 +156,13 @@ def retro_link_fathers(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session) -> in
             item_type="assembly" if doc.doc_type == "assembly" else "part",
         ))
         created += 1
+        logger.info("pdf_bom: retro-linked %s as component of %s", doc.part_number, assembly.part_number)
 
-        # remove this part from the assembly's missing_components list
+        # clear from missing_components now that the part is committed
         report = dict(cf.commit.diff_report or {})
-        missing = report.get("missing_components", [])
-        report["missing_components"] = [m for m in missing if m.upper() != target]
+        report["missing_components"] = [
+            m for m in report.get("missing_components", []) if m.upper() != target
+        ]
         cf.commit.diff_report = report
 
     if created:

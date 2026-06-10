@@ -1,3 +1,4 @@
+import logging
 import uuid
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -14,6 +15,7 @@ from app.schemas.documents import DocumentCreate, DocumentResponse
 from app.config import settings
 from app import storage
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["documents"])
 
 
@@ -284,8 +286,8 @@ async def upload_document(
         from app.services.pdf_bom import auto_link_sons, retro_link_fathers
         auto_link_sons(pdf_bytes, repo_id, doc_id, db)
         retro_link_fathers(repo_id, doc_id, db)
-    except Exception:
-        pass  # extraction failure never blocks the commit
+    except Exception as e:
+        logger.warning("pdf_bom extraction failed for doc %s: %s", doc_id, e)
 
     return {
         "commit_hash": short_hash,
