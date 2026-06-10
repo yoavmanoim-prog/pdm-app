@@ -131,32 +131,7 @@ function RepositoryInner() {
 
       {/* Validate tab */}
       {tab === 'validate' && validation && (
-        <div>
-          <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
-            <Stat label="Total" value={validation.total} />
-            <Stat label="Released" value={validation.released} color="green" />
-            <Stat label="Unreleased" value={validation.unreleased} color="#e67e22" />
-            <Stat label="No Drawing" value={validation.missing_drawing} color="red" />
-          </div>
-          {validation.documents.map(d => (
-            <div key={d.document_id} style={{ ...rowStyle, opacity: d.has_drawing ? 1 : 0.6, flexWrap: 'wrap' }}>
-              <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
-              <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
-              {d.current_revision
-                ? <span style={{ color: 'green', fontSize: '12px', marginRight: '8px' }}>Rev {d.current_revision}</span>
-                : <span style={{ color: '#888', fontSize: '12px', marginRight: '8px' }}>Unreleased</span>}
-              {!d.has_drawing && <span style={{ color: 'red', fontSize: '12px', marginRight: '8px' }}>⚠ No drawing</span>}
-              {d.missing_components?.length > 0 && (
-                <span
-                  style={{ color: '#e67e22', fontSize: '12px', cursor: 'default' }}
-                  title={`Missing from repo: ${d.missing_components.join(', ')}`}
-                >
-                  ⚠ {d.missing_components.length} missing part{d.missing_components.length > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
+        <ValidateTab validation={validation} />
       )}
     </div>
   )
@@ -475,6 +450,57 @@ function EditDocumentForm({ repoId, doc, allDocuments, onDone, onCancel }) {
         <button type="button" onClick={onCancel} style={{ ...btnSmall, background: '#aaa' }}>Cancel</button>
       </div>
     </form>
+  )
+}
+
+function ValidateTab({ validation }) {
+  const [expanded, setExpanded] = useState({})   // doc_id → boolean
+
+  const toggle = id => setExpanded(e => ({ ...e, [id]: !e[id] }))
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
+        <Stat label="Total" value={validation.total} />
+        <Stat label="Released" value={validation.released} color="green" />
+        <Stat label="Unreleased" value={validation.unreleased} color="#e67e22" />
+        <Stat label="No Drawing" value={validation.missing_drawing} color="red" />
+      </div>
+      {validation.documents.map(d => (
+        <div key={d.document_id}>
+          <div style={{ ...rowStyle, opacity: d.has_drawing ? 1 : 0.6 }}>
+            <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
+            <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
+            {d.current_revision
+              ? <span style={{ color: 'green', fontSize: '12px', marginRight: '8px' }}>Rev {d.current_revision}</span>
+              : <span style={{ color: '#888', fontSize: '12px', marginRight: '8px' }}>Unreleased</span>}
+            {!d.has_drawing && <span style={{ color: 'red', fontSize: '12px', marginRight: '8px' }}>⚠ No drawing</span>}
+            {d.missing_components?.length > 0 && (
+              <button
+                onClick={() => toggle(d.document_id)}
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: '1px solid #e67e22', borderRadius: '4px', color: '#e67e22', fontSize: '12px', padding: '2px 8px', cursor: 'pointer' }}
+              >
+                ⚠ {d.missing_components.length} missing part{d.missing_components.length > 1 ? 's' : ''}
+                <span style={{ fontSize: '10px', transition: 'transform 0.15s', display: 'inline-block', transform: expanded[d.document_id] ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+              </button>
+            )}
+          </div>
+          {expanded[d.document_id] && d.missing_components?.length > 0 && (
+            <div style={{ marginLeft: '28px', marginBottom: '6px', padding: '8px 12px', background: '#fff8f0', border: '1px solid #fde8cc', borderRadius: '4px', borderTop: 'none' }}>
+              <p style={{ margin: '0 0 6px', fontSize: '11px', color: '#b86a00', fontWeight: 600 }}>
+                Referenced in drawing but not committed to this repository:
+              </p>
+              {d.missing_components.map(pn => (
+                <div key={pn} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0' }}>
+                  <code style={{ fontSize: '12px', background: '#fde8cc', padding: '1px 6px', borderRadius: '3px', color: '#b86a00' }}>{pn}</code>
+                  <span style={{ fontSize: '11px', color: '#aaa' }}>not yet committed</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
 
