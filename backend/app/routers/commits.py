@@ -3,12 +3,13 @@ import hashlib
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.models.repository import Repository
 from app.models.document import Document
 from app.models.commit import Commit, CommitFile
 from app.models.audit import AuditEvent
-from app.schemas.commits import CommitResponse
+from app.schemas.commits import CommitResponse, CommitFileResponse, CommitAmend
 from app.config import settings
 from app.protocol.engine import run_commit_checks
 from app import storage
@@ -111,7 +112,11 @@ async def create_commit(
         protocol_violations=[],
     )
     db.add(commit)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Commit hash collision — please retry")
 
     commit_file = CommitFile(
         commit_id=commit.id,
@@ -145,18 +150,58 @@ async def create_commit(
 # ── Step 13 — commit log ───────────────────────────────────────────────────────
 
 @router.get("/{repo_id}/log", response_model=list[CommitResponse])
-def get_log(repo_id: uuid.UUID, limit: int = 50, db: Session = Depends(get_db)):
+def get_log(
+    repo_id: uuid.UUID,
+    limit: int = 50,
+    branch_id: str | None = None,   # uuid string or "main" for default branch
+    db: Session = Depends(get_db),
+):
     repo = db.get(Repository, repo_id)
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
 
-    return (
-        db.query(Commit)
-        .filter(Commit.repository_id == repo_id)
-        .order_by(desc(Commit.timestamp))
-        .limit(limit)
-        .all()
-    )
+    q = db.query(Commit).filter(Commit.repository_id == repo_id)
+
+    if branch_id == "main":
+        q = q.filter(Commit.branch_id.is_(None))
+    elif branch_id:
+        q = q.filter(Commit.branch_id == uuid.UUID(branch_id))
+
+    commits = q.order_by(desc(Commit.timestamp)).limit(limit).all()
+
+    # build a doc_id → part_number lookup so the frontend can show drawing IDs
+    doc_ids = {f.document_id for c in commits for f in c.files}
+    part_numbers = {
+        d.id: d.part_number
+        for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()
+    } if doc_ids else {}
+
+    result = []
+    for c in commits:
+        files = [
+            CommitFileResponse(
+                id=f.id,
+                document_id=f.document_id,
+                part_number=part_numbers.get(f.document_id),
+                s3_key_pdf=f.s3_key_pdf,
+                content_hash=f.content_hash,
+                change_type=f.change_type,
+            )
+            for f in c.files
+        ]
+        result.append(CommitResponse(
+            id=c.id,
+            repository_id=c.repository_id,
+            branch_id=c.branch_id,
+            parent_id=c.parent_id,
+            author=c.author,
+            message=c.message,
+            short_hash=c.short_hash,
+            is_local=c.is_local,
+            timestamp=c.timestamp,
+            files=files,
+        ))
+    return result
 
 
 # ── Step 14 — commit diff ─────────────────────────────────────────────────────
@@ -170,6 +215,48 @@ def get_commit(repo_id: uuid.UUID, short_hash: str, db: Session = Depends(get_db
     )
     if not commit:
         raise HTTPException(status_code=404, detail="Commit not found")
+    return commit
+
+
+@router.patch("/{repo_id}/commits/{short_hash}", response_model=CommitResponse)
+def amend_commit(
+    repo_id: uuid.UUID,
+    short_hash: str,
+    body: CommitAmend,
+    db: Session = Depends(get_db),
+):
+    commit = (
+        db.query(Commit)
+        .filter(Commit.repository_id == repo_id, Commit.short_hash == short_hash)
+        .first()
+    )
+    if not commit:
+        raise HTTPException(status_code=404, detail="Commit not found")
+    if not commit.is_local:
+        raise HTTPException(status_code=409, detail="Cannot amend a pushed commit — it is already on the remote vault")
+    old_author = commit.author
+    old_message = commit.message
+    if body.author is not None:
+        commit.author = body.author
+    if body.message is not None:
+        commit.message = body.message
+    db.add(AuditEvent(
+        repository_id=repo_id,
+        actor=commit.author,
+        action="amend_commit",
+        entity_type="commit",
+        entity_id=str(commit.id),
+        details={
+            "commit_hash": commit.short_hash,
+            "old_author": old_author,
+            "new_author": commit.author,
+            "old_message": old_message,
+            "new_message": commit.message,
+        },
+        is_breach=False,
+    ))
+    db.commit()
+    db.refresh(commit)
     return commit
 
 

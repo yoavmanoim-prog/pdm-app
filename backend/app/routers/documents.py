@@ -2,10 +2,13 @@ import uuid
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.models.repository import Repository
 from app.models.document import Document
 from app.models.commit import Commit, CommitFile
+from app.models.bom import BOMEntry
 from app.models.audit import AuditEvent
 from app.schemas.documents import DocumentCreate, DocumentResponse
 from app.config import settings
@@ -54,6 +57,29 @@ def list_documents(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     return db.query(Document).filter(Document.repository_id == repo_id).all()
 
 
+@router.patch("/{repo_id}/documents/{doc_id}", response_model=DocumentResponse)
+def edit_document(repo_id: uuid.UUID, doc_id: uuid.UUID, body: DocumentCreate, db: Session = Depends(get_db)):
+    doc = db.get(Document, doc_id)
+    if not doc or doc.repository_id != repo_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if body.doc_type not in ("detail", "assembly"):
+        raise HTTPException(status_code=400, detail="doc_type must be 'detail' or 'assembly'")
+    if body.part_number != doc.part_number:
+        clash = db.query(Document).filter(
+            Document.repository_id == repo_id,
+            Document.part_number == body.part_number,
+            Document.id != doc_id,
+        ).first()
+        if clash:
+            raise HTTPException(status_code=409, detail=f"Part number '{body.part_number}' already exists")
+    doc.part_number = body.part_number
+    doc.title = body.title
+    doc.doc_type = body.doc_type
+    db.commit()
+    db.refresh(doc)
+    return doc
+
+
 @router.get("/{repo_id}/documents/{doc_id}", response_model=DocumentResponse)
 def get_document(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = Depends(get_db)):
     doc = db.get(Document, doc_id)
@@ -74,7 +100,6 @@ def get_document_commits(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = De
         raise HTTPException(status_code=404, detail="Document not found")
 
     # fetch all CommitFile rows for this document, ordered newest-first via the parent Commit
-    from sqlalchemy import desc as _desc
     commit_files = (
         db.query(CommitFile)
         .join(Commit)
@@ -82,7 +107,7 @@ def get_document_commits(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = De
             Commit.repository_id == repo_id,
             CommitFile.document_id == doc_id,
         )
-        .order_by(_desc(Commit.timestamp))
+        .order_by(desc(Commit.timestamp))
         .all()
     )
 
@@ -117,6 +142,51 @@ def get_document_commits(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = De
     }
 
 
+@router.get("/{repo_id}/documents/{doc_id}/latest-commit")
+def get_latest_commit(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Returns just the author/message/hash of the most recent commit — no presigned URLs generated."""
+    doc = db.get(Document, doc_id)
+    if not doc or doc.repository_id != repo_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    latest = (
+        db.query(CommitFile)
+        .join(Commit)
+        .filter(Commit.repository_id == repo_id, CommitFile.document_id == doc_id)
+        .order_by(desc(Commit.timestamp))
+        .first()
+    )
+    if not latest:
+        return None
+    c = latest.commit
+    return {
+        "commit_hash": c.short_hash,
+        "author": c.author,
+        "message": c.message,
+        "is_local": c.is_local,
+    }
+
+
+@router.get("/{repo_id}/documents/{doc_id}/bom")
+def get_document_bom(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Returns BOM entries for a document (pre-populates the edit form's sons section)."""
+    doc = db.get(Document, doc_id)
+    if not doc or doc.repository_id != repo_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    entries = db.query(BOMEntry).filter(BOMEntry.assembly_id == doc_id).all()
+    result = []
+    for e in entries:
+        comp = db.get(Document, e.component_id)
+        result.append({
+            "id": str(e.id),
+            "component_id": str(e.component_id),
+            "part_number": comp.part_number if comp else None,
+            "title": comp.title if comp else None,
+            "quantity": e.quantity,
+            "position": e.position or "",
+        })
+    return result
+
+
 @router.post("/{repo_id}/documents/{doc_id}/upload")
 async def upload_document(
     repo_id: uuid.UUID,
@@ -124,6 +194,7 @@ async def upload_document(
     file: UploadFile = File(...),
     author: str = Form(...),
     message: str = Form("Initial upload"),
+    branch_id: uuid.UUID | None = Form(None),
     db: Session = Depends(get_db),
 ):
     doc = db.get(Document, doc_id)
@@ -171,7 +242,7 @@ async def upload_document(
 
     commit = Commit(
         repository_id=repo_id,
-        branch_id=None,
+        branch_id=branch_id,
         parent_id=parent.id if parent else None,
         author=author,
         message=message,
@@ -181,7 +252,11 @@ async def upload_document(
         protocol_violations=[],
     )
     db.add(commit)
-    db.flush()  # get commit.id before creating CommitFile
+    try:
+        db.flush()  # get commit.id before creating CommitFile
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Commit hash collision — please retry")
 
     commit_file = CommitFile(
         commit_id=commit.id,

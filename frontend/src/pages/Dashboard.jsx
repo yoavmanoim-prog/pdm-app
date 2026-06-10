@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { listRepos, createRepo } from '../api'
+import { listRepos, createRepo, deleteRepo } from '../api'
+import FolderPicker from '../components/FolderPicker'
 
 export default function Dashboard() {
   const [repos, setRepos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showNew, setShowNew] = useState(false)
-  const [form, setForm] = useState({ name: '', description: '' })
+  const [form, setForm] = useState({ name: '', description: '', watch_path: '' })
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -38,21 +39,46 @@ export default function Dashboard() {
       </div>
 
       {showNew && (
-        <form onSubmit={handleCreate} style={{ background: '#f5f5f5', padding: '16px', borderRadius: '6px', marginBottom: '20px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <input required placeholder="Repository name" value={form.name}
-            onChange={e => setForm({ ...form, name: e.target.value })}
-            style={inputStyle} />
-          <input placeholder="Description (optional)" value={form.description}
-            onChange={e => setForm({ ...form, description: e.target.value })}
-            style={{ ...inputStyle, flex: 2 }} />
-          <button type="submit" style={btnStyle}>Create</button>
+        <form onSubmit={handleCreate} style={{ background: '#f5f5f5', padding: '16px', borderRadius: '6px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <input required placeholder="Repository name" value={form.name}
+              onChange={e => setForm({ ...form, name: e.target.value })}
+              style={inputStyle} />
+            <input placeholder="Description (optional)" value={form.description}
+              onChange={e => setForm({ ...form, description: e.target.value })}
+              style={{ ...inputStyle, flex: 2 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+              Directory to watch <span style={{ color: '#aaa' }}>(like git init — linked permanently to this repo)</span>
+            </div>
+            <FolderPicker
+              value={form.watch_path}
+              onChange={v => setForm({ ...form, watch_path: v })}
+            />
+          </div>
+          <div>
+            <button type="submit" style={btnStyle}>Create</button>
+          </div>
         </form>
       )}
 
       {repos.length === 0 && <p style={{ color: '#888' }}>No repositories yet. Create one to get started.</p>}
 
       {repos.map(r => (
-        <Link key={r.id} to={`/repos/${r.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+        <div key={r.id} style={{ position: 'relative' }}>
+          <button
+            onClick={async e => {
+              e.stopPropagation()
+              if (!window.confirm(`Delete "${r.name}"? This cannot be undone.`)) return
+              await deleteRepo(r.id)
+              setRepos(repos.filter(x => x.id !== r.id))
+            }}
+            style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 1, background: 'none', border: '1px solid #ddd', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontSize: '12px', color: '#999' }}
+          >
+            Delete
+          </button>
+          <Link to={`/repos/${r.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
           <div style={cardStyle}>
             {/* top row: repo name + description */}
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
@@ -83,7 +109,8 @@ export default function Dashboard() {
               Created {new Date(r.created_at).toLocaleDateString()}
             </div>
           </div>
-        </Link>
+          </Link>
+        </div>
       ))}
     </div>
   )

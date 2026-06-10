@@ -13,6 +13,8 @@ class Repository(Base):
     description: Mapped[str | None] = mapped_column(Text)
     # URL of the remote vault this repo syncs with (only relevant on local vaults)
     remote_url: Mapped[str | None] = mapped_column(String(500))
+    # local folder this repo tracks — set once at creation, like git init <dir>
+    watch_path: Mapped[str | None] = mapped_column(String(1000))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="repository")

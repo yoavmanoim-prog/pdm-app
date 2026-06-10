@@ -1,19 +1,15 @@
 """
-Working-directory watcher.
+Working-directory watcher — git-init style.
 
-The engineer mounts a local folder into the container (e.g. ~/Desktop/drawings → /watch).
-This router scans that folder, compares each PDF's SHA-256 hash against the last committed
-version in the repo, and returns one of three statuses per file:
-
-  committed  — hash matches the latest commit for that document
-  modified   — file exists in PDM but the on-disk hash differs (file changed since last commit)
-  untracked  — no document in this repo matches the filename's part number
+Each repo stores a watch_path set at creation time (relative to WATCH_BASE).
+The UI scans that path automatically — no path input after init.
 """
 import hashlib
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -21,12 +17,21 @@ from app.config import settings
 from app.database import get_db
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
+from app.models.repository import Repository
 
-router = APIRouter(prefix="/repos", tags=["watch"])
+router = APIRouter(tags=["watch"])
+
+
+def _resolve(watch_path: str) -> Path:
+    """Resolve repo watch_path under WATCH_BASE, blocking directory traversal."""
+    base = Path(settings.WATCH_BASE)
+    resolved = (base / watch_path.lstrip("/")).resolve()
+    if not str(resolved).startswith(str(base.resolve())):
+        raise HTTPException(status_code=400, detail="Path outside home directory")
+    return resolved
 
 
 def _hash_file(path: Path) -> str:
-    """SHA-256 of a file on disk."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
@@ -35,7 +40,6 @@ def _hash_file(path: Path) -> str:
 
 
 def _latest_hash(doc_id: uuid.UUID, repo_id: uuid.UUID, db: Session) -> str | None:
-    """Return the SHA-256 of the most recently committed PDF for a document."""
     cf = (
         db.query(CommitFile)
         .join(Commit)
@@ -46,33 +50,57 @@ def _latest_hash(doc_id: uuid.UUID, repo_id: uuid.UUID, db: Session) -> str | No
     return cf.content_hash if cf else None
 
 
-@router.get("/{repo_id}/watch/status")
+@router.get("/watch/browse")
+def browse(path: str = Query("", description="Relative path to browse (empty = root)")):
+    """List subdirectories at a given path under WATCH_BASE — used by the folder picker."""
+    base = Path(settings.WATCH_BASE)
+    target = (base / path.lstrip("/")).resolve() if path else base.resolve()
+
+    if not str(target).startswith(str(base.resolve())):
+        raise HTTPException(status_code=400, detail="Path outside watch root")
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail="Path not found")
+
+    entries = []
+    for entry in sorted(target.iterdir()):
+        if entry.is_dir() and not entry.name.startswith('.'):
+            rel = str(entry.relative_to(base))
+            entries.append({"name": entry.name, "path": rel})
+
+    return {
+        "current": path or "",
+        "parent": str(Path(path).parent) if path and Path(path).parent != Path(path) else None,
+        "dirs": entries,
+    }
+
+
+def _get_watch_path(repo_id: uuid.UUID, db: Session) -> Path:
+    repo = db.query(Repository).filter(Repository.id == repo_id).first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    if not repo.watch_path:
+        raise HTTPException(status_code=409, detail="No watch directory set for this repository")
+    return _resolve(repo.watch_path)
+
+
+@router.get("/repos/{repo_id}/watch/status")
 def watch_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
-    """
-    Scan WATCH_DIR and return the status of every PDF found.
-    The filename (without extension) is treated as the document part number.
-    """
-    if not settings.WATCH_DIR:
-        raise HTTPException(status_code=503, detail="WATCH_DIR is not configured")
+    """Scan the repo's watch directory and return the status of every PDF."""
+    watch_path = _get_watch_path(repo_id, db)
 
-    watch_path = Path(settings.WATCH_DIR)
     if not watch_path.exists():
-        raise HTTPException(status_code=503, detail=f"WATCH_DIR '{settings.WATCH_DIR}' does not exist")
+        raise HTTPException(status_code=503, detail=f"Watch directory no longer exists: {watch_path}")
 
-    # build a lookup of part_number → Document for this repo
     docs = db.query(Document).filter(Document.repository_id == repo_id).all()
     doc_by_part = {d.part_number.upper(): d for d in docs}
 
     results = []
     for pdf in sorted(watch_path.glob("*.pdf")):
-        # derive a candidate part number from the filename (strip extension)
         candidate = pdf.stem.upper()
         file_hash = _hash_file(pdf)
-
         doc = doc_by_part.get(candidate)
 
         if doc is None:
-            # no document with this part number exists in the repo
             results.append({
                 "filename": pdf.name,
                 "part_number": pdf.stem,
@@ -82,12 +110,8 @@ def watch_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             })
         else:
             committed_hash = _latest_hash(doc.id, repo_id, db)
-            if committed_hash and file_hash == committed_hash:
-                status = "committed"
-            else:
-                # file exists in PDM but the on-disk copy has changed
-                status = "modified" if committed_hash else "untracked"
-
+            status = "committed" if (committed_hash and file_hash == committed_hash) \
+                else ("modified" if committed_hash else "untracked")
             results.append({
                 "filename": pdf.name,
                 "part_number": doc.part_number,
@@ -102,49 +126,51 @@ def watch_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     return {"watch_dir": str(watch_path), "files": results}
 
 
-@router.post("/{repo_id}/watch/commit")
+@router.get("/repos/{repo_id}/watch/preview/{filename:path}")
+def watch_preview(repo_id: uuid.UUID, filename: str, db: Session = Depends(get_db)):
+    """Stream a PDF from the watch directory so the browser can display it inline."""
+    watch_path = _get_watch_path(repo_id, db)
+    file_path = watch_path / filename
+    if not file_path.exists() or not file_path.suffix.lower() == '.pdf':
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path, media_type="application/pdf", filename=filename)
+
+
+@router.post("/repos/{repo_id}/watch/commit")
 async def watch_commit(
     repo_id: uuid.UUID,
-    filename: str = Form(...),      # filename in WATCH_DIR to commit
+    filename: str = Form(...),
     author: str = Form(...),
     message: str = Form(...),
-    doc_id: uuid.UUID | None = Form(None),        # existing document to update
-    part_number: str | None = Form(None),         # for creating a new document
+    branch_id: uuid.UUID | None = Form(None),   # None = main branch
+    doc_id: uuid.UUID | None = Form(None),
+    part_number: str | None = Form(None),
     title: str | None = Form(None),
     doc_type: str = Form("detail"),
     db: Session = Depends(get_db),
 ):
-    """
-    Commit a file from WATCH_DIR without a browser upload.
-    The backend reads the file directly from the mounted folder.
-    If doc_id is given → commit a new version of that document.
-    If part_number/title are given → create the document first, then upload.
-    """
-    if not settings.WATCH_DIR:
-        raise HTTPException(status_code=503, detail="WATCH_DIR is not configured")
+    """Commit a file from the repo's watch directory — no browser upload needed."""
+    watch_path = _get_watch_path(repo_id, db)
+    file_path = watch_path / filename
 
-    path = Path(settings.WATCH_DIR) / filename
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"File '{filename}' not found in WATCH_DIR")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found in watch directory")
 
-    pdf_bytes = path.read_bytes()
+    pdf_bytes = file_path.read_bytes()
 
-    # re-use the existing upload / commit logic via the storage module
     if doc_id:
-        # update an existing document — same path as /documents/{id}/upload
         from app.routers.documents import upload_document
 
         class _FakeUpload:
-            filename = filename
             async def read(self): return pdf_bytes
 
         fake = _FakeUpload()
+        fake.filename = filename
         return await upload_document(
             repo_id=repo_id, doc_id=doc_id,
-            file=fake, author=author, message=message, db=db,
+            file=fake, author=author, message=message, branch_id=branch_id, db=db,
         )
     else:
-        # create a new document then upload
         if not part_number or not title:
             raise HTTPException(status_code=400, detail="part_number and title required for new documents")
 
@@ -164,5 +190,5 @@ async def watch_commit(
         fake.filename = filename
         return await upload_document(
             repo_id=repo_id, doc_id=doc.id,
-            file=fake, author=author, message=message, db=db,
+            file=fake, author=author, message=message, branch_id=branch_id, db=db,
         )
