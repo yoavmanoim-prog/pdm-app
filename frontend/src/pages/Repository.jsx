@@ -90,7 +90,7 @@ function RepositoryInner() {
                 {c.files?.length > 0
                   ? c.files.map(f => (
                     <code key={f.id} style={{ background: '#e8f0fe', color: '#1a1a2e', padding: '2px 7px', borderRadius: '3px', fontSize: '12px' }}>
-                      {f.part_number || f.document_id.slice(0, 8)}
+                      {f.part_number ? f.part_number.split(' ')[0] : f.document_id.slice(0, 8)}
                     </code>
                   ))
                   : <code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: '3px', fontSize: '12px', color: '#aaa' }}>{c.short_hash}</code>
@@ -242,7 +242,7 @@ function BranchesTab({ repoId, branches }) {
                   {c.files?.length > 0
                     ? c.files.map(f => (
                       <code key={f.id} style={{ background: '#e8f0fe', color: '#1a1a2e', padding: '1px 6px', borderRadius: '3px', fontSize: '12px' }}>
-                        {f.part_number || f.document_id.slice(0, 8)}
+                        {f.part_number ? f.part_number.split(' ')[0] : f.document_id.slice(0, 8)}
                       </code>
                     ))
                     : <code style={{ background: '#f0f0f0', padding: '1px 6px', borderRadius: '3px', fontSize: '12px', color: '#aaa' }}>{c.short_hash}</code>
