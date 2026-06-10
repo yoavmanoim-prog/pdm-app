@@ -142,6 +142,7 @@ async def watch_commit(
     filename: str = Form(...),
     author: str = Form(...),
     message: str = Form(...),
+    branch_id: uuid.UUID | None = Form(None),   # None = main branch
     doc_id: uuid.UUID | None = Form(None),
     part_number: str | None = Form(None),
     title: str | None = Form(None),
@@ -167,7 +168,7 @@ async def watch_commit(
         fake.filename = filename
         return await upload_document(
             repo_id=repo_id, doc_id=doc_id,
-            file=fake, author=author, message=message, db=db,
+            file=fake, author=author, message=message, branch_id=branch_id, db=db,
         )
     else:
         if not part_number or not title:
@@ -189,5 +190,5 @@ async def watch_commit(
         fake.filename = filename
         return await upload_document(
             repo_id=repo_id, doc_id=doc.id,
-            file=fake, author=author, message=message, db=db,
+            file=fake, author=author, message=message, branch_id=branch_id, db=db,
         )
