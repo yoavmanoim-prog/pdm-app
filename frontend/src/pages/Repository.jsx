@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff } from '../api'
+import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 
@@ -112,22 +112,7 @@ function RepositoryInner() {
 
       {/* Documents tab */}
       {tab === 'documents' && (
-        <div>
-          <div style={{ marginBottom: '12px' }}>
-            <Link to={`/repos/${repoId}/upload`} style={{ ...btnSmall, textDecoration: 'none' }}>+ Upload Drawing</Link>
-          </div>
-          {documents.length === 0 && <p style={{ color: '#888' }}>No documents yet.</p>}
-          {documents.map(d => (
-            <Link key={d.id} to={`/repos/${repoId}/documents/${d.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div style={{ ...rowStyle, cursor: 'pointer' }}>
-                <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
-                <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
-                <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '3px' }}>{d.doc_type}</span>
-                <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>View →</span>
-              </div>
-            </Link>
-          ))}
-        </div>
+        <DocumentsTab repoId={repoId} documents={documents} />
       )}
 
       {/* Branches tab */}
@@ -251,6 +236,72 @@ function BranchesTab({ repoId, branches }) {
                   <span style={{ color: '#aaa', fontSize: '11px' }}>{c.author} · {new Date(c.timestamp).toLocaleDateString()}</span>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DocumentsTab({ repoId, documents }) {
+  const { refresh } = useRepo()
+  const [editing, setEditing] = useState(null)   // doc id being edited
+  const [form, setForm]       = useState({})
+  const [err, setErr]         = useState(null)
+
+  const startEdit = (d, e) => {
+    e.preventDefault()
+    setEditing(d.id)
+    setForm({ part_number: d.part_number, title: d.title, doc_type: d.doc_type })
+    setErr(null)
+  }
+
+  const save = async (docId) => {
+    setErr(null)
+    try {
+      await editDocument(repoId, docId, form)
+      setEditing(null)
+      refresh()
+    } catch (e) { setErr(e.message) }
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: '12px' }}>
+        <Link to={`/repos/${repoId}/upload`} style={{ ...btnSmall, textDecoration: 'none' }}>+ Upload Drawing</Link>
+      </div>
+      {documents.length === 0 && <p style={{ color: '#888' }}>No documents yet.</p>}
+      {err && <p style={{ color: 'red', fontSize: '13px' }}>{err}</p>}
+      {documents.map(d => (
+        <div key={d.id}>
+          {editing === d.id ? (
+            <div style={{ ...rowStyle, flexWrap: 'wrap', gap: '8px', background: '#f9f9f9' }}>
+              <input value={form.part_number} onChange={e => setForm(f => ({ ...f, part_number: e.target.value }))}
+                style={{ ...inputStyle, width: '140px' }} placeholder="Part number" />
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                style={{ ...inputStyle, flex: 1 }} placeholder="Title" />
+              <select value={form.doc_type} onChange={e => setForm(f => ({ ...f, doc_type: e.target.value }))} style={inputStyle}>
+                <option value="detail">Detail</option>
+                <option value="assembly">Assembly</option>
+              </select>
+              <button onClick={() => save(d.id)} style={btnSmall}>Save</button>
+              <button onClick={() => setEditing(null)} style={{ ...btnSmall, background: '#aaa' }}>Cancel</button>
+            </div>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <Link to={`/repos/${repoId}/documents/${d.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                <div style={{ ...rowStyle, cursor: 'pointer', paddingRight: '60px' }}>
+                  <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
+                  <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
+                  <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '3px' }}>{d.doc_type}</span>
+                  <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>View →</span>
+                </div>
+              </Link>
+              <button onClick={e => startEdit(d, e)}
+                style={{ position: 'absolute', top: '50%', right: '10px', transform: 'translateY(-50%)', background: 'none', border: '1px solid #ddd', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px', color: '#888' }}>
+                Edit
+              </button>
             </div>
           )}
         </div>
