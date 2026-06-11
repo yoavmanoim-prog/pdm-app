@@ -3,11 +3,13 @@ import { useParams, Link } from 'react-router-dom'
 import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
+import { useMode } from '../context/ModeContext'
 
 // Inner component — has access to RepoContext
 function RepositoryInner() {
   const { repoId } = useParams()
   const { version, refresh } = useRepo()
+  const { mode } = useMode()
 
   const [repo, setRepo]           = useState(null)
   const [tab, setTab]             = useState('commits')
@@ -71,7 +73,7 @@ function RepositoryInner() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #eee', marginBottom: '20px' }}>
-        {['commits', 'documents', 'branches', 'tree', 'validate', 'working dir'].map(t => (
+        {['commits', 'documents', 'branches', 'tree', 'validate', ...(mode === 'local' ? ['working dir'] : [])].map(t => (
           <button key={t} onClick={() => setTab(t)}
             style={{ padding: '8px 18px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: tab === t ? 'bold' : 'normal', borderBottom: tab === t ? '2px solid #1a1a2e' : '2px solid transparent', marginBottom: '-2px' }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -126,8 +128,8 @@ function RepositoryInner() {
         </div>
       )}
 
-      {/* Working Dir tab */}
-      {tab === 'working dir' && <WorkingDirectory repoId={repoId} />}
+      {/* Working Dir tab — local vault only */}
+      {tab === 'working dir' && mode === 'local' && <WorkingDirectory repoId={repoId} />}
 
       {/* Validate tab */}
       {tab === 'validate' && validation && (
