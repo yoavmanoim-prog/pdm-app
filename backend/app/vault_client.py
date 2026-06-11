@@ -26,16 +26,27 @@ class VaultClient:
         except Exception:
             return False
 
-    def push_commits(self, commits: list[dict], repository: dict = None, documents: list = None) -> dict:
-        """Send local commits (plus repo/document metadata) to the remote vault."""
+    def push_commits(self, commits: list[dict], repository: dict = None,
+                     documents: list = None, bom_entries: list = None,
+                     revisions: list = None) -> dict:
+        """Send local commits (plus repo/document/BOM/revision metadata) to the remote vault."""
         return self._post("/vault/incoming/commits", json={
             "commits": commits,
             "repository": repository,
             "documents": documents or [],
+            "bom_entries": bom_entries or [],
+            "revisions": revisions or [],
         })
 
+    def pull_snapshot(self, repo_id: str, since_hash: str | None = None) -> dict:
+        """Fetch commits, documents, BOM entries, and revisions from the remote vault."""
+        params = {}
+        if since_hash:
+            params["since_hash"] = since_hash
+        return self._get(f"/vault/snapshot/{repo_id}", params=params)
+
     def pull_commits(self, repo_id: str, since_hash: str | None = None) -> list[dict]:
-        """Fetch commits from the remote vault that the local vault doesn't have."""
+        """Fetch commits from the remote vault (backwards-compatible, used by sync_status)."""
         params = {"repo_id": repo_id}
         if since_hash:
             params["since_hash"] = since_hash

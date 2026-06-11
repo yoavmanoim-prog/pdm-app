@@ -4,9 +4,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.database import get_db
 from app.config import settings
-from app.models.repository import Repository
-from app.models.document import Document
+from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
+from app.models.document import Document
+from app.models.repository import Repository
+from app.models.revision import Revision
 from app.vault_client import VaultClient
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -43,8 +45,8 @@ def sync_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         .filter(Commit.repository_id == repo_id).all()
     }
     try:
-        remote_commits = client.pull_commits(str(repo_id))
-        behind = sum(1 for c in remote_commits if c["short_hash"] not in local_hashes)
+        remote_data = client.pull_snapshot(str(repo_id))
+        behind = sum(1 for c in remote_data["commits"] if c["short_hash"] not in local_hashes)
     except Exception:
         behind = 0
 
@@ -78,6 +80,16 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     docs = {d.id: d for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()}
 
     repo = db.get(Repository, repo_id)
+
+    # BOM entries where assembly or component is among the pushed docs
+    bom_entries = db.query(BOMEntry).filter(
+        BOMEntry.assembly_id.in_(doc_ids)
+    ).all()
+
+    # revisions for the pushed docs
+    revisions = db.query(Revision).filter(
+        Revision.document_id.in_(doc_ids)
+    ).all()
 
     payload = []
     for c in unpushed:
@@ -113,6 +125,37 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
                  "part_number": d.part_number, "title": d.title, "doc_type": d.doc_type}
                 for d in docs.values()
             ],
+            bom_entries=[
+                {
+                    "id": str(b.id),
+                    "assembly_id": str(b.assembly_id),
+                    "component_id": str(b.component_id),
+                    "quantity": b.quantity,
+                    "position": b.position,
+                    "find_number": b.find_number,
+                    "part_revision": b.part_revision,
+                    "material": b.material,
+                    "description": b.description,
+                    "product_line": b.product_line,
+                    "item_type": b.item_type,
+                }
+                for b in bom_entries
+            ],
+            revisions=[
+                {
+                    "id": str(r.id),
+                    "document_id": str(r.document_id),
+                    "commit_id": str(r.commit_id),
+                    "revision_code": r.revision_code,
+                    "status": r.status,
+                    "published_by": r.published_by,
+                    "published_at": r.published_at.isoformat() if r.published_at else None,
+                    "change_note": r.change_note,
+                    "passed_protocol": r.passed_protocol,
+                    "violations": r.violations,
+                }
+                for r in revisions
+            ],
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Remote vault unreachable: {e}")
@@ -131,7 +174,7 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     _require_local()
 
-    # find the latest local commit to use as the starting point
+    # find the latest local commit to use as the starting point for new commits
     latest_local = db.query(Commit).filter(
         Commit.repository_id == repo_id,
     ).order_by(desc(Commit.timestamp)).first()
@@ -140,20 +183,35 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     client = VaultClient()
     try:
-        remote_commits = client.pull_commits(str(repo_id), since_hash=since_hash)
+        remote = client.pull_snapshot(str(repo_id), since_hash=since_hash)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Remote vault unreachable: {e}")
 
-    if not remote_commits:
-        return {"pulled": 0, "message": "Already up to date"}
+    # upsert documents so the local vault has all metadata even for docs it hasn't committed
+    for doc_data in remote.get("documents", []):
+        doc = db.get(Document, uuid.UUID(doc_data["id"]))
+        if not doc:
+            db.add(Document(
+                id=uuid.UUID(doc_data["id"]),
+                repository_id=uuid.UUID(doc_data["repository_id"]),
+                part_number=doc_data["part_number"],
+                title=doc_data["title"],
+                doc_type=doc_data["doc_type"],
+            ))
+        else:
+            doc.part_number = doc_data["part_number"]
+            doc.title = doc_data["title"]
+            doc.doc_type = doc_data["doc_type"]
+    db.flush()
 
+    # new commits only
     local_hashes = {
         c.short_hash for c in db.query(Commit.short_hash)
         .filter(Commit.repository_id == repo_id).all()
     }
 
     pulled = 0
-    for c in remote_commits:
+    for c in remote.get("commits", []):
         if c["short_hash"] in local_hashes:
             continue
 
@@ -184,5 +242,58 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
         pulled += 1
 
+    # upsert BOM entries
+    for b in remote.get("bom_entries", []):
+        entry = db.get(BOMEntry, uuid.UUID(b["id"]))
+        if not entry:
+            db.add(BOMEntry(
+                id=uuid.UUID(b["id"]),
+                assembly_id=uuid.UUID(b["assembly_id"]),
+                component_id=uuid.UUID(b["component_id"]),
+                quantity=b["quantity"],
+                position=b.get("position"),
+                find_number=b.get("find_number"),
+                part_revision=b.get("part_revision"),
+                material=b.get("material"),
+                description=b.get("description"),
+                product_line=b.get("product_line"),
+                item_type=b["item_type"],
+            ))
+        else:
+            entry.quantity = b["quantity"]
+            entry.position = b.get("position")
+            entry.part_revision = b.get("part_revision")
+            entry.material = b.get("material")
+            entry.description = b.get("description")
+            entry.item_type = b["item_type"]
+
+    # upsert revisions
+    for r in remote.get("revisions", []):
+        rev = db.get(Revision, uuid.UUID(r["id"]))
+        if not rev:
+            db.add(Revision(
+                id=uuid.UUID(r["id"]),
+                document_id=uuid.UUID(r["document_id"]),
+                commit_id=uuid.UUID(r["commit_id"]),
+                revision_code=r["revision_code"],
+                status=r["status"],
+                published_by=r.get("published_by"),
+                published_at=r.get("published_at"),
+                change_note=r.get("change_note"),
+                passed_protocol=r.get("passed_protocol", False),
+                violations=r.get("violations"),
+            ))
+        else:
+            rev.status = r["status"]
+            rev.published_by = r.get("published_by")
+            rev.published_at = r.get("published_at")
+            rev.change_note = r.get("change_note")
+            rev.passed_protocol = r.get("passed_protocol", False)
+            rev.violations = r.get("violations")
+
     db.commit()
+
+    if not pulled and not remote.get("bom_entries") and not remote.get("revisions"):
+        return {"pulled": 0, "message": "Already up to date"}
+
     return {"pulled": pulled}
