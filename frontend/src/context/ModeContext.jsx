@@ -11,16 +11,20 @@ export function ModeProvider({ children }) {
   const [remoteUrl, setRemoteUrlState] = useState(
     () => localStorage.getItem('remoteVaultUrl') || ''
   )
+  // increments on every vault change — used as a key to remount the page tree
+  const [vaultKey, setVaultKey] = useState(0)
 
   function switchMode(m) {
     setMode(m)
     localStorage.setItem('vaultMode', m)
+    setVaultKey(k => k + 1)
   }
 
   function setRemoteUrl(url) {
     const trimmed = url.trim().replace(/\/$/, '')
     setRemoteUrlState(trimmed)
     localStorage.setItem('remoteVaultUrl', trimmed)
+    setVaultKey(k => k + 1)
   }
 
   // the base URL api.js should use for the current mode
@@ -32,7 +36,7 @@ export function ModeProvider({ children }) {
   }
 
   return (
-    <ModeContext.Provider value={{ mode, switchMode, remoteUrl, setRemoteUrl, apiBase }}>
+    <ModeContext.Provider value={{ mode, switchMode, remoteUrl, setRemoteUrl, apiBase, vaultKey }}>
       {children}
     </ModeContext.Provider>
   )

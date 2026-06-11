@@ -1,11 +1,24 @@
 import { Routes, Route, Link } from 'react-router-dom'
-import { ModeProvider } from './context/ModeContext'
+import { ModeProvider, useMode } from './context/ModeContext'
 import ModeToggle from './components/ModeToggle'
 import Dashboard from './pages/Dashboard'
 import Repository from './pages/Repository'
 import BranchView from './pages/BranchView'
 import Upload from './pages/Upload'
 import DocumentViewer from './pages/DocumentViewer'
+
+function AppContent() {
+  const { vaultKey } = useMode()
+  return (
+    <Routes key={vaultKey}>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/repos/:repoId" element={<Repository />} />
+      <Route path="/repos/:repoId/upload" element={<Upload />} />
+      <Route path="/repos/:repoId/branches/:branchId" element={<BranchView />} />
+      <Route path="/repos/:repoId/documents/:docId" element={<DocumentViewer />} />
+    </Routes>
+  )
+}
 
 export default function App() {
   return (
@@ -21,13 +34,7 @@ export default function App() {
           </div>
         </nav>
 
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/repos/:repoId" element={<Repository />} />
-          <Route path="/repos/:repoId/upload" element={<Upload />} />
-          <Route path="/repos/:repoId/branches/:branchId" element={<BranchView />} />
-          <Route path="/repos/:repoId/documents/:docId" element={<DocumentViewer />} />
-        </Routes>
+        <AppContent />
       </div>
     </ModeProvider>
   )
