@@ -268,6 +268,19 @@ def amend_commit(
     ))
     db.commit()
     db.refresh(commit)
+
+    # soft recommit — re-run BOM extraction against the existing PDF in S3
+    from app.services.pdf_bom import auto_link_sons, retro_link_fathers
+    for cf in commit.files:
+        if not cf.s3_key_pdf:
+            continue
+        try:
+            pdf_bytes = storage.download_file(cf.s3_key_pdf)
+            auto_link_sons(pdf_bytes, repo_id, cf.document_id, db)
+            retro_link_fathers(repo_id, cf.document_id, db)
+        except Exception as e:
+            logger.warning("pdf_bom re-extraction failed on amend %s: %s", short_hash, e)
+
     return commit
 
 
