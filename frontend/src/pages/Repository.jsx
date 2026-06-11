@@ -183,8 +183,9 @@ function RepositoryInner() {
 
       {/* Documents tab */}
       {tab === 'documents' && (
-        <DocumentsTab repoId={repoId} documents={documents} />
+        <DocumentsTab repoId={repoId} documents={documents} validation={validation} />
       )}
+
 
       {/* Branches tab */}
       {tab === 'branches' && <BranchesTab repoId={repoId} branches={branches} />}
@@ -298,9 +299,14 @@ function BranchesTab({ repoId, branches }) {
   )
 }
 
-function DocumentsTab({ repoId, documents }) {
+function DocumentsTab({ repoId, documents, validation }) {
   const { refresh } = useRepo()
   const [editing, setEditing] = useState(null)   // doc id being edited
+
+  const revByDocId = {}
+  if (validation) {
+    for (const vd of validation.documents) revByDocId[vd.document_id] = vd
+  }
 
   return (
     <div>
@@ -308,8 +314,10 @@ function DocumentsTab({ repoId, documents }) {
         <Link to={`/repos/${repoId}/upload`} style={{ ...btnSmall, textDecoration: 'none' }}>+ Upload Drawing</Link>
       </div>
       {documents.length === 0 && <p style={{ color: '#888' }}>No documents yet.</p>}
-      {documents.map(d => (
-        <div key={d.id}>
+      {documents.map(d => {
+        const vd = revByDocId[d.id]
+        return (
+          <div key={d.id}>
           {/* document row — always visible */}
           <div style={{ position: 'relative' }}>
             <Link to={`/repos/${repoId}/documents/${d.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -323,6 +331,15 @@ function DocumentsTab({ repoId, documents }) {
               }}>
                 <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
                 <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
+                {vd?.revision
+                  ? <span style={{ fontSize: '12px', color: 'green', marginRight: '6px' }}>Rev {vd.revision}</span>
+                  : <span style={{ fontSize: '12px', color: '#aaa', marginRight: '6px' }}>Unreleased</span>}
+                {vd?.revision_mismatch && (
+                  <span title={`File says REV-${vd.title_revision}, vault assigned Rev ${vd.revision}`}
+                    style={{ fontSize: '11px', color: '#c0392b', background: '#fdecea', padding: '2px 6px', borderRadius: '3px', marginRight: '6px', cursor: 'help' }}>
+                    ⚠ Rev mismatch
+                  </span>
+                )}
                 <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '3px' }}>{d.doc_type}</span>
                 <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>View →</span>
               </div>
@@ -344,8 +361,9 @@ function DocumentsTab({ repoId, documents }) {
               onCancel={() => setEditing(null)}
             />
           )}
-        </div>
-      ))}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -536,15 +554,24 @@ function ValidateTab({ validation }) {
         <Stat label="Released" value={validation.released} color="green" />
         <Stat label="Unreleased" value={validation.unreleased} color="#e67e22" />
         <Stat label="No Drawing" value={validation.missing_drawing} color="red" />
+        {validation.revision_mismatches > 0 && (
+          <Stat label="Rev Mismatch" value={validation.revision_mismatches} color="#c0392b" />
+        )}
       </div>
       {validation.documents.map(d => (
         <div key={d.document_id}>
           <div style={{ ...rowStyle, opacity: d.has_drawing ? 1 : 0.6 }}>
             <code style={{ fontSize: '13px', minWidth: '120px' }}>{d.part_number}</code>
             <span style={{ flex: 1, marginLeft: '12px' }}>{d.title}</span>
-            {d.current_revision
-              ? <span style={{ color: 'green', fontSize: '12px', marginRight: '8px' }}>Rev {d.current_revision}</span>
+            {d.revision
+              ? <span style={{ color: 'green', fontSize: '12px', marginRight: '8px' }}>Rev {d.revision}</span>
               : <span style={{ color: '#888', fontSize: '12px', marginRight: '8px' }}>Unreleased</span>}
+            {d.revision_mismatch && (
+              <span title={`File says REV-${d.title_revision}, vault assigned Rev ${d.revision}`}
+                style={{ fontSize: '11px', color: '#c0392b', background: '#fdecea', padding: '2px 6px', borderRadius: '3px', marginRight: '8px', cursor: 'help' }}>
+                ⚠ REV-{d.title_revision} ≠ Rev {d.revision}
+              </span>
+            )}
             {!d.has_drawing && <span style={{ color: 'red', fontSize: '12px', marginRight: '8px' }}>⚠ No drawing</span>}
             {d.missing_components?.length > 0 && (
               <button
