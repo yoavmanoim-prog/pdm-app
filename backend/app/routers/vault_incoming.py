@@ -87,12 +87,18 @@ class RepositoryPayload(BaseModel):
     description: str | None = None
 
 
+class DiffReportPatch(BaseModel):
+    short_hash: str
+    diff_report: dict | None = None
+
+
 class PushPayload(BaseModel):
     commits: list[CommitPayload]
     repository: RepositoryPayload | None = None
     documents: list[DocumentPayload] = []
     bom_entries: list[BOMEntryPayload] = []
     revisions: list[RevisionPayload] = []
+    diff_report_patches: list[DiffReportPatch] = []
 
 
 @router.post("/incoming/commits")
@@ -220,6 +226,12 @@ def receive_commits(payload: PushPayload, db: Session = Depends(get_db)):
             rev.change_note = r.change_note
             rev.passed_protocol = r.passed_protocol
             rev.violations = r.violations
+
+    # apply diff_report patches — updates missing_components on already-stored commits
+    for patch in payload.diff_report_patches:
+        commit = db.query(Commit).filter(Commit.short_hash == patch.short_hash).first()
+        if commit:
+            commit.diff_report = patch.diff_report
 
     db.commit()
     return {"stored": stored, "skipped": skipped}
