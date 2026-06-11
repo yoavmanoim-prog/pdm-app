@@ -1,3 +1,4 @@
+import re
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -8,6 +9,9 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.revision import Revision
 from app.schemas.bom import BOMEntryCreate, BOMEntryResponse
+
+# matches REV-01, REV-A, REV-02B, etc. in a document title
+_REV_RE = re.compile(r'\bREV-([A-Z0-9]+)\b', re.IGNORECASE)
 
 router = APIRouter(prefix="/repos", tags=["product-tree"])
 
@@ -151,25 +155,34 @@ def validate_tree(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             diff = latest_cf.commit.diff_report or {}
             missing_components = diff.get("missing_components", [])
 
+        vault_revision = latest_rev.revision_code if latest_rev else None
+        title_rev_match = _REV_RE.search(doc.title or '')
+        title_revision = title_rev_match.group(1).upper() if title_rev_match else None
+        revision_mismatch = bool(title_revision and vault_revision and title_revision != vault_revision)
+
         result.append({
             "document_id": str(doc.id),
             "part_number": doc.part_number,
             "title": doc.title,
             "doc_type": doc.doc_type,
             "has_drawing": has_drawing,
-            "revision": latest_rev.revision_code if latest_rev else None,
+            "revision": vault_revision,
             "revision_status": latest_rev.status if latest_rev else "unreleased",
             "is_released": latest_rev is not None and latest_rev.status == "released",
             "missing_components": missing_components,
+            "title_revision": title_revision,
+            "revision_mismatch": revision_mismatch,
         })
 
     released = sum(1 for r in result if r["is_released"])
     missing = sum(1 for r in result if not r["has_drawing"])
+    mismatched = sum(1 for r in result if r["revision_mismatch"])
 
     return {
         "total": len(result),
         "released": released,
         "unreleased": len(result) - released,
         "missing_drawing": missing,
+        "revision_mismatches": mismatched,
         "documents": result,
     }
