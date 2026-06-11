@@ -87,12 +87,18 @@ class RepositoryPayload(BaseModel):
     description: str | None = None
 
 
+class DiffReportPatch(BaseModel):
+    short_hash: str
+    diff_report: dict | None = None
+
+
 class PushPayload(BaseModel):
     commits: list[CommitPayload]
     repository: RepositoryPayload | None = None
     documents: list[DocumentPayload] = []
     bom_entries: list[BOMEntryPayload] = []
     revisions: list[RevisionPayload] = []
+    diff_report_patches: list[DiffReportPatch] = []
 
 
 @router.post("/incoming/commits")
@@ -220,6 +226,18 @@ def receive_commits(payload: PushPayload, db: Session = Depends(get_db)):
             rev.change_note = r.change_note
             rev.passed_protocol = r.passed_protocol
             rev.violations = r.violations
+
+    # apply diff_report patches — bulk fetch then patch in memory (avoids N+1)
+    if payload.diff_report_patches:
+        patch_hashes = [p.short_hash for p in payload.diff_report_patches]
+        commits_by_hash = {
+            c.short_hash: c
+            for c in db.query(Commit).filter(Commit.short_hash.in_(patch_hashes)).all()
+        }
+        for patch in payload.diff_report_patches:
+            commit = commits_by_hash.get(patch.short_hash)
+            if commit:
+                commit.diff_report = patch.diff_report
 
     db.commit()
     return {"stored": stored, "skipped": skipped}
