@@ -8,7 +8,6 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
 from app.models.repository import Repository
-from app.models.revision import Revision
 from app.vault_client import VaultClient
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -82,14 +81,9 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     repo = db.get(Repository, repo_id)
 
-    # BOM entries where assembly or component is among the pushed docs
+    # BOM entries where assembly is among the pushed docs
     bom_entries = db.query(BOMEntry).filter(
         BOMEntry.assembly_id.in_(doc_ids)
-    ).all()
-
-    # revisions for the pushed docs
-    revisions = db.query(Revision).filter(
-        Revision.document_id.in_(doc_ids)
     ).all()
 
     payload = []
@@ -141,21 +135,6 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
                     "item_type": b.item_type,
                 }
                 for b in bom_entries
-            ],
-            revisions=[
-                {
-                    "id": str(r.id),
-                    "document_id": str(r.document_id),
-                    "commit_id": str(r.commit_id),
-                    "revision_code": r.revision_code,
-                    "status": r.status,
-                    "published_by": r.published_by,
-                    "published_at": r.published_at.isoformat() if r.published_at else None,
-                    "change_note": r.change_note,
-                    "passed_protocol": r.passed_protocol,
-                    "violations": r.violations,
-                }
-                for r in revisions
             ],
         )
     except Exception as e:

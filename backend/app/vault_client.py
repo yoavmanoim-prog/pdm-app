@@ -29,15 +29,13 @@ class VaultClient:
             return False
 
     def push_commits(self, commits: list[dict], repository: dict = None,
-                     documents: list = None, bom_entries: list = None,
-                     revisions: list = None) -> dict:
-        """Send local commits (plus repo/document/BOM/revision metadata) to the remote vault."""
+                     documents: list = None, bom_entries: list = None) -> dict:
+        """Send local commits (plus repo/document/BOM metadata) to the remote vault."""
         return self._post("/vault/incoming/commits", json={
             "commits": commits,
             "repository": repository,
             "documents": documents or [],
             "bom_entries": bom_entries or [],
-            "revisions": revisions or [],
         })
 
     def pull_snapshot(self, repo_id: str, since_hash: str | None = None) -> dict:

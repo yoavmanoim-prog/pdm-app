@@ -9,7 +9,6 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.repository import Repository
 from app.models.document import Document
-from app.models.revision import Revision
 
 router = APIRouter(prefix="/vault", tags=["vault"])
 
@@ -92,7 +91,6 @@ class PushPayload(BaseModel):
     repository: RepositoryPayload | None = None
     documents: list[DocumentPayload] = []
     bom_entries: list[BOMEntryPayload] = []
-    revisions: list[RevisionPayload] = []
 
 
 @router.post("/incoming/commits")
@@ -197,29 +195,10 @@ def receive_commits(payload: PushPayload, db: Session = Depends(get_db)):
             entry.description = b.description
             entry.item_type = b.item_type
 
-    # upsert revisions
-    for r in payload.revisions:
-        rev = db.get(Revision, r.id)
-        if not rev:
-            db.add(Revision(
-                id=r.id,
-                document_id=r.document_id,
-                commit_id=r.commit_id,
-                revision_code=r.revision_code,
-                status=r.status,
-                published_by=r.published_by,
-                published_at=r.published_at,
-                change_note=r.change_note,
-                passed_protocol=r.passed_protocol,
-                violations=r.violations,
-            ))
-        else:
-            rev.status = r.status
-            rev.published_by = r.published_by
-            rev.published_at = r.published_at
-            rev.change_note = r.change_note
-            rev.passed_protocol = r.passed_protocol
-            rev.violations = r.violations
+    # revisions are NOT accepted via push — the remote vault is the sole authority.
+    # Revisions are created here by POST /vault/revisions/publish and flow to local
+    # via pull (GET /vault/snapshot). Accepting them on push would let a local vault
+    # with a stale 'draft' state overwrite a 'released' revision on the remote.
 
     db.commit()
     return {"stored": stored, "skipped": skipped}
