@@ -61,6 +61,8 @@ def list_documents(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
 @router.patch("/{repo_id}/documents/{doc_id}", response_model=DocumentResponse)
 def edit_document(repo_id: uuid.UUID, doc_id: uuid.UUID, body: DocumentCreate, db: Session = Depends(get_db)):
+    if settings.VAULT_MODE != "local":
+        raise HTTPException(status_code=403, detail="Document metadata can only be edited on the local vault")
     doc = db.get(Document, doc_id)
     if not doc or doc.repository_id != repo_id:
         raise HTTPException(status_code=404, detail="Document not found")
