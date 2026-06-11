@@ -29,7 +29,8 @@ def _require_local():
 def sync_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     _require_local()
 
-    client = VaultClient()
+    repo = db.get(Repository, repo_id)
+    client = VaultClient(remote_url=repo.remote_url if repo else None)
     if not client.ping():
         return {"status": "remote_unreachable", "ahead": 0, "behind": 0}
 
@@ -115,7 +116,7 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             ],
         })
 
-    client = VaultClient()
+    client = VaultClient(remote_url=repo.remote_url)
     try:
         result = client.push_commits(
             payload,
@@ -181,7 +182,8 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     since_hash = latest_local.short_hash if latest_local else None
 
-    client = VaultClient()
+    repo = db.get(Repository, repo_id)
+    client = VaultClient(remote_url=repo.remote_url if repo else None)
     try:
         remote = client.pull_snapshot(str(repo_id), since_hash=since_hash)
     except Exception as e:

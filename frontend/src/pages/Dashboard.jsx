@@ -10,7 +10,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showNew, setShowNew] = useState(false)
-  const [form, setForm] = useState({ name: '', description: '', watch_path: '' })
+  const [form, setForm] = useState({ name: '', description: '', watch_path: '', remote_url: '' })
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -51,15 +51,28 @@ export default function Dashboard() {
               style={{ ...inputStyle, flex: 2 }} />
           </div>
           {mode === 'local' && (
-            <div>
-              <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-                Directory to watch <span style={{ color: '#aaa' }}>(like git init — linked permanently to this repo)</span>
+            <>
+              <div>
+                <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                  Directory to watch <span style={{ color: '#aaa' }}>(like git init — linked permanently to this repo)</span>
+                </div>
+                <FolderPicker
+                  value={form.watch_path}
+                  onChange={v => setForm({ ...form, watch_path: v })}
+                />
               </div>
-              <FolderPicker
-                value={form.watch_path}
-                onChange={v => setForm({ ...form, watch_path: v })}
-              />
-            </div>
+              <div>
+                <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                  Remote vault URL <span style={{ color: '#aaa' }}>(optional — link to a remote repo for push/pull)</span>
+                </div>
+                <input
+                  placeholder="https://your-remote-vault.example.com"
+                  value={form.remote_url}
+                  onChange={e => setForm({ ...form, remote_url: e.target.value })}
+                  style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
+                />
+              </div>
+            </>
           )}
           <div>
             <button type="submit" style={btnStyle}>Create</button>

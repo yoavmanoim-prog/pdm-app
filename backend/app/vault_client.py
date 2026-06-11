@@ -5,8 +5,10 @@ from app.config import settings
 class VaultClient:
     """HTTP client for local vault → remote vault communication."""
 
-    def __init__(self):
-        self.base_url = settings.REMOTE_VAULT_URL.rstrip("/")
+    def __init__(self, remote_url: str | None = None):
+        # per-repo remote_url takes priority over the global env var
+        url = remote_url or settings.REMOTE_VAULT_URL
+        self.base_url = url.rstrip("/")
 
     def _get(self, path: str, **kwargs):
         resp = httpx.get(f"{self.base_url}{path}", timeout=30, **kwargs)
