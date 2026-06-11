@@ -124,7 +124,7 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     diff_report_patches = [
         {"short_hash": c.short_hash, "diff_report": c.diff_report}
         for c in all_commits
-        if c.diff_report
+        if c.diff_report is not None
     ]
 
     client = VaultClient(remote_url=repo.remote_url)
