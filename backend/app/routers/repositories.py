@@ -10,7 +10,7 @@ from app.models.branch import Branch
 from app.models.bom import BOMEntry
 from app.models.revision import Revision
 from app.models.audit import AuditEvent
-from app.schemas.repositories import RepositoryCreate, RepositoryResponse, RepositoryListResponse
+from app.schemas.repositories import RepositoryCreate, RepositoryUpdate, RepositoryResponse, RepositoryListResponse
 from app import storage
 
 # all routes in this file are prefixed with /repos
@@ -67,6 +67,18 @@ def list_repositories(db: Session = Depends(get_db)):
             } if latest else None,
         ))
     return result
+
+
+@router.patch("/{repo_id}", response_model=RepositoryResponse)
+def update_repository(repo_id: uuid.UUID, body: RepositoryUpdate, db: Session = Depends(get_db)):
+    repo = db.get(Repository, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    if body.remote_url is not None:
+        repo.remote_url = body.remote_url.strip().rstrip("/") or None
+    db.commit()
+    db.refresh(repo)
+    return repo
 
 
 @router.get("/{repo_id}", response_model=RepositoryResponse)

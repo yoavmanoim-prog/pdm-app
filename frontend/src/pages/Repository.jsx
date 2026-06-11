@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry } from '../api'
+import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 import { useMode } from '../context/ModeContext'
@@ -21,6 +21,8 @@ function RepositoryInner() {
   const [sync, setSync]           = useState(null)
   const [loading, setLoading]     = useState(true)
   const [selectedDiff, setSelectedDiff] = useState(null)
+  const [linkingRemote, setLinkingRemote] = useState(false)
+  const [remoteUrlInput, setRemoteUrlInput] = useState('')
 
   // re-runs whenever version increments — triggered by any action anywhere on the page
   useEffect(() => {
@@ -46,6 +48,13 @@ function RepositoryInner() {
     try { const r = await pull(repoId); alert(`Pulled ${r.pulled} commits`); refresh() }
     catch (e) { alert(e.message) }
   }
+  const handleLinkRemote = async () => {
+    try {
+      await linkRepo(repoId, remoteUrlInput.trim())
+      setLinkingRemote(false)
+      refresh()
+    } catch (e) { alert(e.message) }
+  }
 
   if (loading) return <p>Loading…</p>
   if (!repo) return <p>Repository not found.</p>
@@ -59,17 +68,46 @@ function RepositoryInner() {
           <h2 style={{ margin: '4px 0' }}>{repo.name}</h2>
           {repo.description && <p style={{ color: '#666', margin: 0 }}>{repo.description}</p>}
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           {sync && (
             <span style={{ fontSize: '12px', color: sync.status === 'synced' ? 'green' : '#e67e22' }}>
               ● {sync.status} {sync.ahead > 0 ? `(${sync.ahead} ahead)` : ''}{sync.behind > 0 ? `(${sync.behind} behind)` : ''}
             </span>
+          )}
+          {mode === 'local' && repo && (
+            repo.remote_url ? (
+              <span style={{ fontSize: '11px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '10px', cursor: 'pointer' }}
+                title="Click to change remote URL"
+                onClick={() => { setRemoteUrlInput(repo.remote_url); setLinkingRemote(true) }}>
+                ⇄ {repo.remote_url.replace(/^https?:\/\//, '')}
+              </span>
+            ) : (
+              <button onClick={() => { setRemoteUrlInput(''); setLinkingRemote(true) }} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>
+                Link Remote
+              </button>
+            )
           )}
           <button onClick={handlePush} style={btnSmall}>Push</button>
           <button onClick={handlePull} style={btnSmall}>Pull</button>
           <Link to={`/repos/${repoId}/upload`} style={{ ...btnSmall, textDecoration: 'none' }}>+ Commit</Link>
         </div>
       </div>
+
+      {linkingRemote && (
+        <div style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '6px', padding: '12px', marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', color: '#555', whiteSpace: 'nowrap' }}>Remote vault URL:</span>
+          <input
+            autoFocus
+            value={remoteUrlInput}
+            onChange={e => setRemoteUrlInput(e.target.value)}
+            placeholder="https://your-remote-vault.example.com"
+            style={{ flex: 1, padding: '6px 10px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }}
+            onKeyDown={e => { if (e.key === 'Enter') handleLinkRemote(); if (e.key === 'Escape') setLinkingRemote(false) }}
+          />
+          <button onClick={handleLinkRemote} style={btnSmall}>Save</button>
+          <button onClick={() => setLinkingRemote(false)} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>Cancel</button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #eee', marginBottom: '20px' }}>
