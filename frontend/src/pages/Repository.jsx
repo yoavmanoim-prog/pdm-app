@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo } from '../api'
+import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo, createReleaseRequest, listReleaseRequests, approveReleaseRequest, denyReleaseRequest } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 import { useMode } from '../context/ModeContext'
@@ -142,7 +142,7 @@ function RepositoryInner() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #eee', marginBottom: '20px' }}>
-        {['commits', 'documents', 'branches', 'tree', 'validate', ...(mode === 'local' ? ['working dir'] : [])].map(t => (
+        {['commits', 'documents', 'branches', 'tree', 'validate', ...(mode === 'remote' ? ['releases'] : ['working dir'])].map(t => (
           <button key={t} onClick={() => setTab(t)}
             style={{ padding: '8px 18px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: tab === t ? 'bold' : 'normal', borderBottom: tab === t ? '2px solid #1a1a2e' : '2px solid transparent', marginBottom: '-2px' }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -204,6 +204,11 @@ function RepositoryInner() {
       {/* Validate tab */}
       {tab === 'validate' && validation && (
         <ValidateTab validation={validation} />
+      )}
+
+      {/* Releases tab — remote vault only */}
+      {tab === 'releases' && mode === 'remote' && (
+        <ReleasesTab repoId={repoId} />
       )}
     </div>
   )
@@ -301,7 +306,9 @@ function BranchesTab({ repoId, branches }) {
 
 function DocumentsTab({ repoId, documents, validation }) {
   const { refresh } = useRepo()
-  const [editing, setEditing] = useState(null)   // doc id being edited
+  const { mode } = useMode()
+  const [editing, setEditing] = useState(null)
+  const [requesting, setRequesting] = useState(null)   // doc id with open release request form
 
   const revByDocId = {}
   if (validation) {
@@ -344,14 +351,32 @@ function DocumentsTab({ repoId, documents, validation }) {
                 <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>View →</span>
               </div>
             </Link>
-            <button
-              onClick={e => { e.preventDefault(); setEditing(editing === d.id ? null : d.id) }}
-              style={{ position: 'absolute', top: '50%', right: '10px', transform: 'translateY(-50%)', background: editing === d.id ? '#1a1a2e' : 'none', color: editing === d.id ? '#fff' : '#888', border: '1px solid #ddd', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px' }}>
-              {editing === d.id ? 'Close' : 'Edit'}
-            </button>
+            <div style={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', display: 'flex', gap: '4px' }}>
+              {mode === 'remote' && vd?.has_drawing && (
+                <button
+                  onClick={e => { e.preventDefault(); setRequesting(requesting === d.id ? null : d.id); setEditing(null) }}
+                  style={{ background: requesting === d.id ? '#1a5c2e' : 'none', color: requesting === d.id ? '#fff' : '#1a5c2e', border: '1px solid #1a5c2e', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px' }}>
+                  {requesting === d.id ? 'Cancel' : '↑ Release'}
+                </button>
+              )}
+              {mode === 'local' && (
+                <button
+                  onClick={e => { e.preventDefault(); setEditing(editing === d.id ? null : d.id); setRequesting(null) }}
+                  style={{ background: editing === d.id ? '#1a1a2e' : 'none', color: editing === d.id ? '#fff' : '#888', border: '1px solid #ddd', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px' }}>
+                  {editing === d.id ? 'Close' : 'Edit'}
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* full edit form — shown below the row when editing */}
+          {/* release request form */}
+          {requesting === d.id && (
+            <ReleaseRequestForm repoId={repoId} doc={d} vd={vd}
+              onDone={() => { setRequesting(null); refresh() }}
+              onCancel={() => setRequesting(null)} />
+          )}
+
+          {/* full edit form */}
           {editing === d.id && (
             <EditDocumentForm
               repoId={repoId}
@@ -539,6 +564,151 @@ function EditDocumentForm({ repoId, doc, allDocuments, onDone, onCancel }) {
         <button type="button" onClick={onCancel} style={{ ...btnSmall, background: '#aaa' }}>Cancel</button>
       </div>
     </form>
+  )
+}
+
+function ReleaseRequestForm({ repoId, doc, vd, onDone, onCancel }) {
+  const [requestedBy, setRequestedBy] = useState('')
+  const [changeNote, setChangeNote]   = useState('')
+  const [loading, setLoading]         = useState(false)
+  const [err, setErr]                 = useState(null)
+
+  // must mirror REVISION_SEQUENCE from the backend (A-P, skipping I and O)
+  const REV_SEQ = 'ABCDEFGHJKLMNP'.split('')
+  const currentIdx = vd?.revision ? REV_SEQ.indexOf(vd.revision.toUpperCase()) : -1
+  const proposedCode = currentIdx >= 0 && currentIdx + 1 < REV_SEQ.length
+    ? REV_SEQ[currentIdx + 1]
+    : 'A'
+  const needsChangeNote = proposedCode !== 'A'
+
+  const handleSubmit = async e => {
+    e.preventDefault()
+    if (!requestedBy.trim()) return setErr('Enter your name')
+    if (needsChangeNote && !changeNote.trim()) return setErr('Change note required for Rev ' + proposedCode)
+    setLoading(true); setErr(null)
+    try {
+      await createReleaseRequest(repoId, doc.id, { requested_by: requestedBy, change_note: changeNote || null })
+      onDone()
+    } catch (e) { setErr(e.message) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ padding: '12px 16px', background: '#f0faf4', border: '1px solid #b7e4c7', borderTop: 'none', borderRadius: '0 0 4px 4px', marginBottom: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ fontSize: '13px', color: '#1a5c2e', fontWeight: 600 }}>
+        Request release of <strong>{doc.part_number}</strong> as <strong>Rev {proposedCode}</strong>
+        {vd?.revision && <span style={{ fontWeight: 400, color: '#666' }}> (currently Rev {vd.revision})</span>}
+      </div>
+      <input required placeholder="Your name" value={requestedBy}
+        onChange={e => setRequestedBy(e.target.value)} style={inputStyle} />
+      <textarea
+        placeholder={needsChangeNote ? 'Change note (required for Rev ' + proposedCode + ')' : 'Change note (optional for Rev A)'}
+        value={changeNote} onChange={e => setChangeNote(e.target.value)}
+        rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
+      {err && <p style={{ color: 'red', margin: 0, fontSize: '13px' }}>{err}</p>}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button type="submit" disabled={loading} style={{ ...btnSmall, background: '#1a5c2e' }}>
+          {loading ? 'Submitting…' : 'Submit Release Request'}
+        </button>
+        <button type="button" onClick={onCancel} style={{ ...btnSmall, background: '#aaa' }}>Cancel</button>
+      </div>
+    </form>
+  )
+}
+
+function ReleasesTab({ repoId }) {
+  const [requests, setRequests] = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [reviewer, setReviewer] = useState('')
+  const [acting, setActing]     = useState(null)   // req id being approved/denied
+  const [err, setErr]           = useState(null)
+
+  const load = () => {
+    listReleaseRequests(repoId)
+      .then(setRequests)
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [repoId])
+
+  const handle = async (reqId, action) => {
+    if (!reviewer.trim()) return setErr('Enter your name before approving or denying')
+    setActing(reqId); setErr(null)
+    try {
+      if (action === 'approve') await approveReleaseRequest(repoId, reqId, { reviewed_by: reviewer })
+      else await denyReleaseRequest(repoId, reqId, { reviewed_by: reviewer })
+      load()
+    } catch (e) { setErr(e.message) }
+    finally { setActing(null) }
+  }
+
+  const pending  = requests.filter(r => r.status === 'pending')
+  const history  = requests.filter(r => r.status !== 'pending')
+
+  if (loading) return <p>Loading…</p>
+
+  return (
+    <div>
+      {err && <p style={{ color: 'red', marginBottom: '12px' }}>{err}</p>}
+
+      {/* Reviewer name — shared field for all approve/deny actions */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+        <span style={{ fontSize: '13px', color: '#555' }}>Your name (auditor):</span>
+        <input value={reviewer} onChange={e => setReviewer(e.target.value)}
+          placeholder="Enter your name to approve or deny"
+          style={{ ...inputStyle, width: '260px' }} />
+      </div>
+
+      <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>
+        Pending requests {pending.length > 0 && <span style={{ color: '#e67e22' }}>({pending.length})</span>}
+      </h4>
+      {pending.length === 0 && <p style={{ color: '#aaa', marginBottom: '20px' }}>No pending release requests.</p>}
+      {pending.map(r => (
+        <div key={r.id} style={{ ...rowStyle, alignItems: 'flex-start', gap: '12px', marginBottom: '8px' }}>
+          <div style={{ flex: 1 }}>
+            <code style={{ fontSize: '13px' }}>{r.part_number}</code>
+            <span style={{ marginLeft: '10px', fontSize: '13px' }}>{r.title}</span>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+              Requesting <strong>Rev {r.proposed_revision_code}</strong>
+              {' · '}by {r.requested_by}
+              {' · '}{new Date(r.created_at).toLocaleString()}
+            </div>
+            {r.change_note && (
+              <div style={{ fontSize: '12px', color: '#555', marginTop: '3px', fontStyle: 'italic' }}>
+                "{r.change_note}"
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+            <button disabled={!!acting} onClick={() => handle(r.id, 'approve')}
+              style={{ ...btnSmall, background: '#1a5c2e', opacity: acting === r.id ? 0.6 : 1 }}>
+              {acting === r.id ? '…' : '✓ Release'}
+            </button>
+            <button disabled={!!acting} onClick={() => handle(r.id, 'deny')}
+              style={{ ...btnSmall, background: '#c0392b', opacity: acting === r.id ? 0.6 : 1 }}>
+              ✕ Deny
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {history.length > 0 && (
+        <>
+          <h4 style={{ margin: '20px 0 10px', fontSize: '14px', color: '#888' }}>History</h4>
+          {history.map(r => (
+            <div key={r.id} style={{ ...rowStyle, opacity: 0.7, marginBottom: '6px' }}>
+              <code style={{ fontSize: '13px' }}>{r.part_number}</code>
+              <span style={{ marginLeft: '10px', flex: 1, fontSize: '13px' }}>{r.title}</span>
+              <span style={{ fontSize: '12px', color: r.status === 'approved' ? 'green' : '#c0392b', marginRight: '10px' }}>
+                {r.status === 'approved' ? `✓ Rev ${r.proposed_revision_code} released` : '✕ Denied'}
+              </span>
+              <span style={{ fontSize: '11px', color: '#aaa' }}>by {r.reviewed_by}</span>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
   )
 }
 

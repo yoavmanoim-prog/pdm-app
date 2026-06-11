@@ -77,6 +77,15 @@ export const syncStatus = repoId => req('GET', `/sync/status/${repoId}`)
 export const push = repoId => req('POST', `/sync/push/${repoId}`)
 export const pull = repoId => req('POST', `/sync/pull/${repoId}`)
 
+// Release requests
+export const createReleaseRequest = (repoId, docId, body) =>
+  req('POST', `/repos/${repoId}/documents/${docId}/release-request`, body)
+export const listReleaseRequests = repoId => req('GET', `/repos/${repoId}/release-requests`)
+export const approveReleaseRequest = (repoId, reqId, body) =>
+  req('POST', `/repos/${repoId}/release-requests/${reqId}/approve`, body)
+export const denyReleaseRequest = (repoId, reqId, body) =>
+  req('POST', `/repos/${repoId}/release-requests/${reqId}/deny`, body)
+
 // Audit
 export const getAudit = (repoId, params = '') => req('GET', `/repos/${repoId}/audit${params}`)
 export const getBreaches = repoId => req('GET', `/repos/${repoId}/audit/breaches`)
