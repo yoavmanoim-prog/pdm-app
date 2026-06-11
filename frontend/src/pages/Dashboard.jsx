@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { listRepos, createRepo, deleteRepo } from '../api'
 import FolderPicker from '../components/FolderPicker'
+import { useMode } from '../context/ModeContext'
 
 export default function Dashboard() {
+  const { mode } = useMode()
   const [repos, setRepos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -48,15 +50,17 @@ export default function Dashboard() {
               onChange={e => setForm({ ...form, description: e.target.value })}
               style={{ ...inputStyle, flex: 2 }} />
           </div>
-          <div>
-            <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-              Directory to watch <span style={{ color: '#aaa' }}>(like git init — linked permanently to this repo)</span>
+          {mode === 'local' && (
+            <div>
+              <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                Directory to watch <span style={{ color: '#aaa' }}>(like git init — linked permanently to this repo)</span>
+              </div>
+              <FolderPicker
+                value={form.watch_path}
+                onChange={v => setForm({ ...form, watch_path: v })}
+              />
             </div>
-            <FolderPicker
-              value={form.watch_path}
-              onChange={v => setForm({ ...form, watch_path: v })}
-            />
-          </div>
+          )}
           <div>
             <button type="submit" style={btnStyle}>Create</button>
           </div>
