@@ -142,6 +142,7 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
                 }
                 for b in bom_entries
             ],
+            diff_report_patches=diff_report_patches,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Remote vault unreachable: {e}")
