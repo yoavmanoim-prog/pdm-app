@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
@@ -10,6 +10,7 @@ function RepositoryInner() {
   const { repoId } = useParams()
   const { version, refresh } = useRepo()
   const { mode, vaultUrl } = useMode()
+  const navigate = useNavigate()
 
   const [repo, setRepo]           = useState(null)
   const [tab, setTab]             = useState('commits')
@@ -56,8 +57,11 @@ function RepositoryInner() {
     } catch (e) { alert(e.message) }
   }
 
-  if (loading) return <p>Loading…</p>
-  if (!repo) return <p>Repository not found.</p>
+  useEffect(() => {
+    if (!loading && !repo) navigate('/')
+  }, [loading, repo, navigate])
+
+  if (loading || !repo) return <p>Loading…</p>
 
   return (
     <div>
