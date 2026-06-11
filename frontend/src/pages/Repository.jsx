@@ -27,18 +27,26 @@ function RepositoryInner() {
 
   // re-runs whenever version increments — triggered by any action anywhere on the page
   useEffect(() => {
-    Promise.all([
-      getRepo(repoId),
-      getLog(repoId),
-      listDocuments(repoId),
-      listBranches(repoId),
-      getTree(repoId),
-      validateTree(repoId),
-      syncStatus(repoId),
-    ]).then(([r, c, d, b, t, v, s]) => {
-      setRepo(r); setCommits(c); setDocuments(d)
-      setBranches(b); setTree(t); setValidation(v); setSync(s)
-    }).finally(() => setLoading(false))
+    // load repo first — if it 404s we show not-found, no point fetching the rest
+    getRepo(repoId).then(r => {
+      setRepo(r)
+      // load secondary data independently so a single failure doesn't blank the page
+      Promise.allSettled([
+        getLog(repoId),
+        listDocuments(repoId),
+        listBranches(repoId),
+        getTree(repoId),
+        validateTree(repoId),
+        syncStatus(repoId),
+      ]).then(([c, d, b, t, v, s]) => {
+        if (c.status === 'fulfilled') setCommits(c.value)
+        if (d.status === 'fulfilled') setDocuments(d.value)
+        if (b.status === 'fulfilled') setBranches(b.value)
+        if (t.status === 'fulfilled') setTree(t.value)
+        if (v.status === 'fulfilled') setValidation(v.value)
+        if (s.status === 'fulfilled') setSync(s.value)
+      })
+    }).catch(() => setRepo(null)).finally(() => setLoading(false))
   }, [repoId, version])
 
   const handlePush = async () => {
@@ -57,11 +65,15 @@ function RepositoryInner() {
     } catch (e) { alert(e.message) }
   }
 
-  useEffect(() => {
-    if (!loading && !repo) navigate('/')
-  }, [loading, repo, navigate])
-
-  if (loading || !repo) return <p>Loading…</p>
+  if (loading) return <p>Loading…</p>
+  if (!repo) return (
+    <div style={{ padding: '20px' }}>
+      <p style={{ color: '#888' }}>Repository not found on this vault.</p>
+      <button onClick={() => navigate('/')} style={{ padding: '6px 14px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+        ← Back to repositories
+      </button>
+    </div>
+  )
 
   return (
     <div>
