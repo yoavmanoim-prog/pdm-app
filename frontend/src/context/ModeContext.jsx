@@ -35,8 +35,13 @@ export function ModeProvider({ children }) {
     return remoteUrl ? `${remoteUrl}/api` : '/api'
   }
 
+  // the human-readable vault URL — what a local vault engineer pastes into "Link Remote"
+  const vaultUrl = mode === 'remote'
+    ? (isLocalhost ? remoteUrl : window.location.origin)
+    : 'http://localhost:8000'
+
   return (
-    <ModeContext.Provider value={{ mode, switchMode, remoteUrl, setRemoteUrl, apiBase, vaultKey }}>
+    <ModeContext.Provider value={{ mode, switchMode, remoteUrl, setRemoteUrl, apiBase, vaultKey, vaultUrl }}>
       {children}
     </ModeContext.Provider>
   )
