@@ -75,15 +75,11 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     if not unpushed:
         return {"pushed": 0, "message": "Nothing to push"}
 
-    # collect all document IDs referenced in these commits
-    doc_ids = {f.document_id for c in unpushed for f in c.files}
-    docs = {d.id: d for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()}
-
     repo = db.get(Repository, repo_id)
 
     # BOM entries where assembly is among the pushed docs
     bom_entries = db.query(BOMEntry).filter(
-        BOMEntry.assembly_id.in_(doc_ids)
+        BOMEntry.assembly_id.in_(all_doc_ids)
     ).all()
 
     payload = []
@@ -110,6 +106,16 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             ],
         })
 
+    # diff_report patches — send current diff_report for ALL repo commits so the remote
+    # gets missing_components updates even on already-pushed commits (retro_link_fathers
+    # updates diff_report locally after a commit is no longer local-only)
+    all_commits = db.query(Commit).filter(Commit.repository_id == repo_id).all()
+    diff_report_patches = [
+        {"short_hash": c.short_hash, "diff_report": c.diff_report}
+        for c in all_commits
+        if c.diff_report is not None
+    ]
+
     client = VaultClient(remote_url=repo.remote_url)
     try:
         result = client.push_commits(
@@ -118,7 +124,7 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             documents=[
                 {"id": str(d.id), "repository_id": str(d.repository_id),
                  "part_number": d.part_number, "title": d.title, "doc_type": d.doc_type}
-                for d in docs.values()
+                for d in all_docs.values()
             ],
             bom_entries=[
                 {
