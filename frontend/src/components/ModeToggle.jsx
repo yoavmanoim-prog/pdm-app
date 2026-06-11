@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMode } from '../context/ModeContext'
 
 export default function ModeToggle() {
   const { mode, switchMode, remoteUrl, setRemoteUrl } = useMode()
+  const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [urlInput, setUrlInput] = useState(remoteUrl)
   const isLocalhost = window.location.hostname === 'localhost'
@@ -22,10 +24,10 @@ export default function ModeToggle() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
       <div style={{ display: 'flex', background: '#e8e8f0', borderRadius: '20px', padding: '2px', gap: '2px' }}>
-        <button style={pillStyle(mode === 'local')} onClick={() => switchMode('local')}>
+        <button style={pillStyle(mode === 'local')} onClick={() => { switchMode('local'); navigate('/') }}>
           Local Vault
         </button>
-        <button style={pillStyle(mode === 'remote')} onClick={() => switchMode('remote')}>
+        <button style={pillStyle(mode === 'remote')} onClick={() => { switchMode('remote'); navigate('/') }}>
           Remote Vault
         </button>
       </div>
@@ -56,7 +58,7 @@ export default function ModeToggle() {
               style={{ flex: 1, padding: '6px 10px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '13px' }}
             />
             <button
-              onClick={() => { setRemoteUrl(urlInput); setEditing(false); window.location.reload() }}
+              onClick={() => { setRemoteUrl(urlInput); setEditing(false) }}
               style={{ padding: '6px 12px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
             >
               Save
