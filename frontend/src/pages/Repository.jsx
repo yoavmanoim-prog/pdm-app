@@ -9,7 +9,7 @@ import { useMode } from '../context/ModeContext'
 function RepositoryInner() {
   const { repoId } = useParams()
   const { version, refresh } = useRepo()
-  const { mode } = useMode()
+  const { mode, vaultUrl } = useMode()
 
   const [repo, setRepo]           = useState(null)
   const [tab, setTab]             = useState('commits')
@@ -67,6 +67,21 @@ function RepositoryInner() {
           <Link to="/" style={{ color: '#888', fontSize: '13px' }}>← Repositories</Link>
           <h2 style={{ margin: '4px 0' }}>{repo.name}</h2>
           {repo.description && <p style={{ color: '#666', margin: 0 }}>{repo.description}</p>}
+          {mode === 'remote' && vaultUrl && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+              <span style={{ fontSize: '11px', color: '#888' }}>Vault URL:</span>
+              <code style={{ fontSize: '11px', background: '#f0f0f0', padding: '2px 8px', borderRadius: '10px', color: '#444' }}>
+                {vaultUrl}
+              </code>
+              <button
+                onClick={() => navigator.clipboard.writeText(vaultUrl).then(() => alert('Copied!'))}
+                title="Copy to clipboard"
+                style={{ background: 'none', border: '1px solid #ddd', borderRadius: '4px', padding: '1px 8px', fontSize: '11px', cursor: 'pointer', color: '#666' }}
+              >
+                Copy
+              </button>
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           {sync && (
