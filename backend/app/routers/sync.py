@@ -8,6 +8,7 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
 from app.models.repository import Repository
+from app.models.revision import Revision
 from app.vault_client import VaultClient
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -77,7 +78,13 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     repo = db.get(Repository, repo_id)
 
-    # BOM entries where assembly is among the pushed docs
+    # send ALL documents and BOM entries for the whole repo — not just the docs
+    # in the current push batch — so the remote always has the full picture.
+    # A BOM entry created by retro_link_fathers references an already-pushed
+    # assembly, which wouldn't appear in the batch and would be silently dropped.
+    all_docs = {d.id: d for d in db.query(Document).filter(Document.repository_id == repo_id).all()}
+    all_doc_ids = set(all_docs.keys())
+
     bom_entries = db.query(BOMEntry).filter(
         BOMEntry.assembly_id.in_(all_doc_ids)
     ).all()
