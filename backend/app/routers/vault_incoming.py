@@ -96,6 +96,7 @@ class PushPayload(BaseModel):
     repository: RepositoryPayload | None = None
     documents: list[DocumentPayload] = []
     bom_entries: list[BOMEntryPayload] = []
+    diff_report_patches: list[DiffReportPatch] = []
 
 
 @router.post("/incoming/commits")
@@ -231,6 +232,9 @@ def snapshot(
 ):
     """Return commits (optionally since a hash), all documents, BOM entries, and revisions."""
     _require_remote()
+
+    if not db.get(Repository, repo_id):
+        raise HTTPException(status_code=404, detail="Repository not found on remote vault")
 
     # commits — optionally filtered to only those after since_hash
     all_commits = (

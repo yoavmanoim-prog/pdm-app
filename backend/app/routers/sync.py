@@ -8,7 +8,7 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
 from app.models.repository import Repository
-from app.vault_client import VaultClient
+from app.vault_client import VaultClient, RemoteRepoNotFoundError
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -47,6 +47,11 @@ def sync_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     try:
         remote_data = client.pull_snapshot(str(repo_id))
         behind = sum(1 for c in remote_data["commits"] if c["short_hash"] not in local_hashes)
+    except RemoteRepoNotFoundError:
+        if repo:
+            repo.remote_url = None
+            db.commit()
+        return {"status": "remote_deleted", "ahead": 0, "behind": 0}
     except Exception:
         behind = 0
 
@@ -117,6 +122,17 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     ]
 
     client = VaultClient(remote_url=repo.remote_url)
+
+    # check the remote repo still exists before pushing — push would otherwise silently re-create it
+    try:
+        client.pull_snapshot(str(repo_id))
+    except RemoteRepoNotFoundError:
+        repo.remote_url = None
+        db.commit()
+        raise HTTPException(status_code=404, detail="Remote repository was deleted — link cleared")
+    except Exception:
+        pass  # unreachable remote is handled below when push_commits fails
+
     try:
         result = client.push_commits(
             payload,
@@ -172,6 +188,11 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     client = VaultClient(remote_url=repo.remote_url if repo else None)
     try:
         remote = client.pull_snapshot(str(repo_id), since_hash=since_hash)
+    except RemoteRepoNotFoundError:
+        if repo:
+            repo.remote_url = None
+            db.commit()
+        raise HTTPException(status_code=404, detail="Remote repository was deleted — link cleared")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Remote vault unreachable: {e}")
 

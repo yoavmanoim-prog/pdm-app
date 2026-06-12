@@ -50,12 +50,24 @@ function RepositoryInner() {
   }, [repoId, version])
 
   const handlePush = async () => {
-    try { const r = await push(repoId); alert(`Pushed ${r.pushed} commits`); refresh() }
-    catch (e) { alert(e.message) }
+    try {
+      const r = await push(repoId)
+      alert(`Pushed ${r.pushed} commits`)
+      refresh()
+    } catch (e) {
+      alert(e.message)
+      if (e.message.includes('Remote repository was deleted')) refresh()
+    }
   }
   const handlePull = async () => {
-    try { const r = await pull(repoId); alert(`Pulled ${r.pulled} commits`); refresh() }
-    catch (e) { alert(e.message) }
+    try {
+      const r = await pull(repoId)
+      alert(`Pulled ${r.pulled} commits`)
+      refresh()
+    } catch (e) {
+      alert(e.message)
+      if (e.message.includes('Remote repository was deleted')) refresh()
+    }
   }
   const handleLinkRemote = async () => {
     try {
@@ -100,10 +112,13 @@ function RepositoryInner() {
           )}
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {sync && (
+          {sync && sync.status !== 'remote_deleted' && (
             <span style={{ fontSize: '12px', color: sync.status === 'synced' ? 'green' : '#e67e22' }}>
               ● {sync.status} {sync.ahead > 0 ? `(${sync.ahead} ahead)` : ''}{sync.behind > 0 ? `(${sync.behind} behind)` : ''}
             </span>
+          )}
+          {sync?.status === 'remote_deleted' && (
+            <span style={{ fontSize: '12px', color: '#c0392b' }}>● remote deleted — link cleared</span>
           )}
           {mode === 'local' && repo && (
             repo.remote_url ? (

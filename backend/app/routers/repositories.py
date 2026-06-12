@@ -9,6 +9,7 @@ from app.models.commit import Commit, CommitFile
 from app.models.branch import Branch
 from app.models.bom import BOMEntry
 from app.models.revision import Revision
+from app.models.revision_request import RevisionRequest
 from app.models.audit import AuditEvent
 from app.schemas.repositories import RepositoryCreate, RepositoryUpdate, RepositoryResponse, RepositoryListResponse
 from app import storage
@@ -109,6 +110,7 @@ def delete_repository(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     # delete leaf records first (no children pointing to them)
     if doc_ids:
+        db.query(RevisionRequest).filter(RevisionRequest.document_id.in_(doc_ids)).delete(synchronize_session=False)
         db.query(BOMEntry).filter(BOMEntry.assembly_id.in_(doc_ids)).delete(synchronize_session=False)
         db.query(BOMEntry).filter(BOMEntry.component_id.in_(doc_ids)).delete(synchronize_session=False)
         db.query(Revision).filter(Revision.document_id.in_(doc_ids)).delete(synchronize_session=False)
