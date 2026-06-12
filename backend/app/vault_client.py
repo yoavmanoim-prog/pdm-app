@@ -2,6 +2,10 @@ import httpx
 from app.config import settings
 
 
+class RemoteRepoNotFoundError(Exception):
+    """Raised when the remote vault returns 404 for a repository."""
+
+
 class VaultClient:
     """HTTP client for local vault → remote vault communication."""
 
@@ -10,8 +14,10 @@ class VaultClient:
         url = remote_url or settings.REMOTE_VAULT_URL
         self.base_url = url.rstrip("/")
 
-    def _get(self, path: str, **kwargs):
+    def _get(self, path: str, raise_on_404: bool = False, **kwargs):
         resp = httpx.get(f"{self.base_url}{path}", timeout=30, **kwargs)
+        if resp.status_code == 404 and raise_on_404:
+            raise RemoteRepoNotFoundError(resp.json().get("detail", "Not found"))
         resp.raise_for_status()
         return resp.json()
 
@@ -29,13 +35,15 @@ class VaultClient:
             return False
 
     def push_commits(self, commits: list[dict], repository: dict = None,
-                     documents: list = None, bom_entries: list = None) -> dict:
+                     documents: list = None, bom_entries: list = None,
+                     diff_report_patches: list = None) -> dict:
         """Send local commits (plus repo/document/BOM metadata) to the remote vault."""
         return self._post("/vault/incoming/commits", json={
             "commits": commits,
             "repository": repository,
             "documents": documents or [],
             "bom_entries": bom_entries or [],
+            "diff_report_patches": diff_report_patches or [],
         })
 
     def pull_snapshot(self, repo_id: str, since_hash: str | None = None) -> dict:
@@ -43,7 +51,7 @@ class VaultClient:
         params = {}
         if since_hash:
             params["since_hash"] = since_hash
-        return self._get(f"/vault/snapshot/{repo_id}", params=params)
+        return self._get(f"/vault/snapshot/{repo_id}", raise_on_404=True, params=params)
 
     def pull_commits(self, repo_id: str, since_hash: str | None = None) -> list[dict]:
         """Fetch commits from the remote vault (backwards-compatible, used by sync_status)."""
