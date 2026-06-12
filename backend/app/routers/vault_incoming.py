@@ -9,6 +9,7 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.repository import Repository
 from app.models.document import Document
+from app.models.revision import Revision
 
 router = APIRouter(prefix="/vault", tags=["vault"])
 
