@@ -8,6 +8,7 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
 from app.models.repository import Repository
+from app.models.revision import Revision
 from app.vault_client import VaultClient, RemoteRepoNotFoundError
 
 router = APIRouter(prefix="/sync", tags=["sync"])
