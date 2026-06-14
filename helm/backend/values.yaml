@@ -42,9 +42,21 @@ postgres:
   image: "postgres:16-alpine"
   database: "pdm"
   user: "pdm"
+  # only used when externalSecrets.enabled=false (local dev / experiments).
+  # In real clusters the password comes from Secrets Manager via ESO — see below.
   password: "changeme"
   storage: "5Gi"
   storageClass: "gp2"
+
+# External Secrets Operator. When enabled, the DB password is read from AWS
+# Secrets Manager and synced into pdm-backend-secret — it is never in values/git.
+# Default off so the chart works without ESO; flip to true per-environment in the
+# gitops values once ESO and the ClusterSecretStore are live.
+externalSecrets:
+  enabled: false
+  clusterSecretStore: aws-secrets-manager
+  passwordSecretName: pdm/backend/db-password
+  refreshInterval: 1h
 
 migrations:
   jobEnabled: false
