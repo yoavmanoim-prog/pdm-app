@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -21,6 +22,15 @@ def _require_local():
             status_code=403,
             detail="Sync endpoints are only available on the local vault",
         )
+
+
+def _parse_dt(value):
+    """Snapshot serializes datetimes to ISO strings; turn them back into datetime
+    objects before persisting. Postgres will implicitly cast an ISO string but
+    SQLite will not, so parse explicitly to stay portable across DB backends."""
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
@@ -130,13 +140,25 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     client = VaultClient(remote_url=repo.remote_url)
 
-    # check the remote repo still exists before pushing — push would otherwise silently re-create it
+    # has this repo ever been pushed before? a previously-pushed commit is no
+    # longer local-only. We only treat a remote 404 as "the repo was deleted"
+    # when the repo was previously synced — on a brand-new repo's first push the
+    # remote legitimately doesn't have it yet, and push_commits will create it.
+    previously_synced = db.query(Commit).filter(
+        Commit.repository_id == repo_id,
+        Commit.is_local.is_(False),
+    ).first() is not None
+
+    # check the remote repo still exists before pushing — push would otherwise
+    # silently re-create a repo that was deliberately deleted on the remote
     try:
         client.pull_snapshot(str(repo_id))
     except RemoteRepoNotFoundError:
-        repo.remote_url = None
-        db.commit()
-        raise HTTPException(status_code=404, detail="Remote repository was deleted — link cleared")
+        if previously_synced:
+            repo.remote_url = None
+            db.commit()
+            raise HTTPException(status_code=404, detail="Remote repository was deleted — link cleared")
+        # first push of a new repo — remote doesn't have it yet, which is expected
     except Exception:
         pass  # unreachable remote is handled below when push_commits fails
 
@@ -242,7 +264,7 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             is_local=False,
             diff_report=c.get("diff_report"),
             protocol_violations=c.get("protocol_violations"),
-            timestamp=c["timestamp"],
+            timestamp=_parse_dt(c["timestamp"]),
         )
         db.add(commit)
         db.flush()
@@ -294,7 +316,7 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
                 revision_code=r["revision_code"],
                 status=r["status"],
                 published_by=r.get("published_by"),
-                published_at=r.get("published_at"),
+                published_at=_parse_dt(r.get("published_at")),
                 change_note=r.get("change_note"),
                 passed_protocol=r.get("passed_protocol", False),
                 violations=r.get("violations"),
@@ -302,7 +324,7 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         else:
             rev.status = r["status"]
             rev.published_by = r.get("published_by")
-            rev.published_at = r.get("published_at")
+            rev.published_at = _parse_dt(r.get("published_at"))
             rev.change_note = r.get("change_note")
             rev.passed_protocol = r.get("passed_protocol", False)
             rev.violations = r.get("violations")
