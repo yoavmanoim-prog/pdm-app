@@ -217,17 +217,28 @@ async def upload_document(
     # SHA-256 of the PDF — used to reject commits with no actual changes
     content_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-    # check if this exact file was already uploaded (no-op commit guard)
-    prev = (
+    # no-op guard: compare against the LATEST committed version of this document on
+    # this branch. (commit_id is a UUID, so ordering by it is random — join Commit
+    # and order by timestamp, as create_commit does.)
+    prev_file = (
         db.query(CommitFile)
-        .filter(CommitFile.document_id == doc_id)
-        .order_by(CommitFile.commit_id)
+        .join(Commit)
+        .filter(
+            Commit.repository_id == repo_id,
+            CommitFile.document_id == doc_id,
+            Commit.branch_id == branch_id,
+        )
+        .order_by(desc(Commit.timestamp))
         .first()
     )
-    if prev and prev.content_hash == content_hash:
+    if prev_file and prev_file.content_hash == content_hash:
         raise HTTPException(status_code=400, detail="No changes detected — file is identical to the current version")
 
-    short_hash = content_hash[:8]
+    # include branch + doc so the same PDF in different documents/branches still gets a
+    # unique short_hash (short_hash has a global unique constraint).
+    short_hash = hashlib.sha256(
+        f"{content_hash}-{branch_id or 'main'}-{doc_id}".encode()
+    ).hexdigest()[:8]
 
     # store PDF in S3 under a stable path: {repo}/{doc}/{hash}.pdf
     s3_key_pdf = storage.upload_file(
