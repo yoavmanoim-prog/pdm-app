@@ -91,6 +91,15 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     repo = db.get(Repository, repo_id)
     client = VaultClient(remote_url=repo.remote_url if repo else None)
 
+    # Has this repo ever been pushed? A non-local commit means yes. This tells a
+    # genuine remote deletion apart from a never-synced repo's first push: a 404
+    # for a previously-synced repo means the remote repo was deleted; a 404 for a
+    # never-synced repo is just its first push (the remote will create it).
+    previously_synced = db.query(Commit).filter(
+        Commit.repository_id == repo_id,
+        Commit.is_local.is_(False),
+    ).first() is not None
+
     # Ask the remote what it already has, then send exactly what it's missing,
     # ordered by timestamp so a parent commit always lands before its children.
     # Relying on the local is_local flag instead desyncs whenever the remote
@@ -100,10 +109,14 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         snapshot = client.pull_snapshot(str(repo_id))
         remote_hashes = {c["short_hash"] for c in snapshot["commits"]}
     except RemoteRepoNotFoundError:
-        # The remote doesn't have this repo (never pushed, or deleted/lost on the
-        # remote). Re-create it by sending full history — like 'git push' to a
-        # remote whose branch was removed.
-        remote_hashes = set()
+        if previously_synced:
+            # the remote repo was deleted out from under us — clear the link and
+            # report it rather than silently re-creating a deliberately-removed
+            # remote. Re-linking (which resets is_local) re-enables a fresh push.
+            repo.remote_url = None
+            db.commit()
+            raise HTTPException(status_code=404, detail="Remote repository was deleted — link cleared")
+        remote_hashes = set()  # brand-new repo — push_commits will create it
     except Exception as e:
         # Can't determine remote state — refuse rather than push a partial set
         # that might violate a parent foreign key on the remote.
