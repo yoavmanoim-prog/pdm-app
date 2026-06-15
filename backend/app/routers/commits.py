@@ -316,10 +316,10 @@ def get_diff(repo_id: uuid.UUID, short_hash: str, db: Session = Depends(get_db))
                 .order_by(desc(Commit.timestamp))
                 .first()
             )
-            if prev_cf and prev_cf.s3_key_pdf:
-                prev_pdf_url = storage.generate_presigned_url(prev_cf.s3_key_pdf)
+            if prev_cf:
+                prev_pdf_url = storage.presigned_url_if_exists(prev_cf.s3_key_pdf)
 
-        current_pdf_url = storage.generate_presigned_url(cf.s3_key_pdf) if cf.s3_key_pdf else None
+        current_pdf_url = storage.presigned_url_if_exists(cf.s3_key_pdf)
 
         doc = db.get(Document, cf.document_id)
         result.append({

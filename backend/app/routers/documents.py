@@ -118,14 +118,12 @@ def get_document_commits(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = De
     versions = []
     for i, cf in enumerate(commit_files):
         commit = cf.commit
-        current_url = storage.generate_presigned_url(cf.s3_key_pdf) if cf.s3_key_pdf else None
+        current_url = storage.presigned_url_if_exists(cf.s3_key_pdf)
 
         # the "previous" version is the next item in the list (we are sorted newest-first)
         prev_url = None
         if i + 1 < len(commit_files):
-            prev_cf = commit_files[i + 1]
-            if prev_cf.s3_key_pdf:
-                prev_url = storage.generate_presigned_url(prev_cf.s3_key_pdf)
+            prev_url = storage.presigned_url_if_exists(commit_files[i + 1].s3_key_pdf)
 
         versions.append({
             "commit_hash": commit.short_hash,
