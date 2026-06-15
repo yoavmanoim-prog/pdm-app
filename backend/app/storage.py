@@ -40,6 +40,16 @@ def generate_presigned_url(s3_key: str, expires_in: int = 3600) -> str:
     )
 
 
+def presigned_url_if_exists(s3_key: str | None, expires_in: int = 3600) -> str | None:
+    # Presigned URL for the key, or None if it's empty or the object is missing.
+    # Guards against handing the UI a link to a deleted object (e.g. a PDF that
+    # was drained when a repo was removed) — otherwise the browser shows the raw
+    # S3 "NoSuchKey" XML instead of a clean "file unavailable" state.
+    if not s3_key or not file_exists(s3_key):
+        return None
+    return generate_presigned_url(s3_key, expires_in)
+
+
 def delete_file(s3_key: str) -> None:
     # Delete a file from S3 — used when cleaning up drafts or test uploads
     try:
