@@ -140,7 +140,9 @@ def receive_commits(payload: PushPayload, db: Session = Depends(get_db)):
     skipped = 0
 
     for c in payload.commits:
-        if db.query(Commit).filter(Commit.short_hash == c.short_hash).first():
+        # dedup on the commit's globally-unique id, not short_hash — short_hash
+        # can collide across repositories and would skip a legitimate commit
+        if db.get(Commit, c.id):
             skipped += 1
             continue
 
