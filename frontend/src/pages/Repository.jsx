@@ -850,7 +850,9 @@ function DiffPanel({ repoId, hash }) {
           <strong style={{ fontSize: '13px' }}>{f.part_number} ({f.change_type})</strong>
           <div style={{ display: 'flex', gap: '12px', marginTop: '6px' }}>
             {f.previous_pdf_url && <a href={f.previous_pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#666' }}>Previous PDF ↗</a>}
-            {f.current_pdf_url && <a href={f.current_pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#1a1a2e' }}>Current PDF ↗</a>}
+            {f.current_pdf_url
+              ? <a href={f.current_pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#1a1a2e' }}>Current PDF ↗</a>
+              : <span style={{ fontSize: '12px', color: '#aaa' }}>PDF unavailable</span>}
           </div>
         </div>
       ))}
