@@ -41,8 +41,13 @@ def sync_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     repo = db.get(Repository, repo_id)
     client = VaultClient(remote_url=repo.remote_url if repo else None)
-    if not client.ping():
-        return {"status": "remote_unreachable", "ahead": 0, "behind": 0}
+    health = client.health()
+    if health != "ok":
+        # "misconfigured" = a server answered but it isn't a vault (usually the
+        # remote URL is missing /api and hit the frontend); "unreachable" = the
+        # connection failed outright
+        status = "remote_misconfigured" if health == "misconfigured" else "remote_unreachable"
+        return {"status": status, "ahead": 0, "behind": 0}
 
     # local unpushed commits = is_local=True
     local_unpushed = db.query(Commit).filter(
