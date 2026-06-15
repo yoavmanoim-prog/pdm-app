@@ -54,7 +54,7 @@ export default function ModeToggle() {
             <input
               value={urlInput}
               onChange={e => setUrlInput(e.target.value)}
-              placeholder="https://d3df2y18th5fg7.cloudfront.net"
+              placeholder="https://d3df2y18th5fg7.cloudfront.net/api"
               style={{ flex: 1, padding: '6px 10px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '13px' }}
             />
             <button

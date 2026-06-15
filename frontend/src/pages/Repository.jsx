@@ -5,6 +5,13 @@ import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 import { useMode } from '../context/ModeContext'
 
+// Friendly labels for the sync status pill
+const SYNC_LABELS = {
+  synced: 'synced',
+  remote_unreachable: 'remote unreachable',
+  remote_misconfigured: 'remote URL invalid (missing /api?)',
+}
+
 // Inner component — has access to RepoContext
 function RepositoryInner() {
   const { repoId } = useParams()
@@ -113,8 +120,11 @@ function RepositoryInner() {
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           {sync && sync.status !== 'remote_deleted' && (
-            <span style={{ fontSize: '12px', color: sync.status === 'synced' ? 'green' : '#e67e22' }}>
-              ● {sync.status} {sync.ahead > 0 ? `(${sync.ahead} ahead)` : ''}{sync.behind > 0 ? `(${sync.behind} behind)` : ''}
+            <span
+              style={{ fontSize: '12px', color: sync.status === 'synced' ? 'green' : '#e67e22' }}
+              title={sync.status === 'remote_misconfigured' ? 'A server answered but it is not a vault — the remote URL is likely missing /api' : undefined}
+            >
+              ● {SYNC_LABELS[sync.status] || sync.status} {sync.ahead > 0 ? `(${sync.ahead} ahead)` : ''}{sync.behind > 0 ? `(${sync.behind} behind)` : ''}
             </span>
           )}
           {sync?.status === 'remote_deleted' && (
@@ -140,18 +150,23 @@ function RepositoryInner() {
       </div>
 
       {linkingRemote && (
-        <div style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '6px', padding: '12px', marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span style={{ fontSize: '13px', color: '#555', whiteSpace: 'nowrap' }}>Remote vault URL:</span>
-          <input
-            autoFocus
-            value={remoteUrlInput}
-            onChange={e => setRemoteUrlInput(e.target.value)}
-            placeholder="https://your-remote-vault.example.com"
-            style={{ flex: 1, padding: '6px 10px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }}
-            onKeyDown={e => { if (e.key === 'Enter') handleLinkRemote(); if (e.key === 'Escape') setLinkingRemote(false) }}
-          />
-          <button onClick={handleLinkRemote} style={btnSmall}>Save</button>
-          <button onClick={() => setLinkingRemote(false)} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>Cancel</button>
+        <div style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '6px', padding: '12px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <span style={{ fontSize: '13px', color: '#555', whiteSpace: 'nowrap' }}>Remote vault URL:</span>
+            <input
+              autoFocus
+              value={remoteUrlInput}
+              onChange={e => setRemoteUrlInput(e.target.value)}
+              placeholder="https://your-remote-vault.example.com/api"
+              style={{ flex: 1, padding: '6px 10px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }}
+              onKeyDown={e => { if (e.key === 'Enter') handleLinkRemote(); if (e.key === 'Escape') setLinkingRemote(false) }}
+            />
+            <button onClick={handleLinkRemote} style={btnSmall}>Save</button>
+            <button onClick={() => setLinkingRemote(false)} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>Cancel</button>
+          </div>
+          <div style={{ fontSize: '11px', color: '#888', marginTop: '6px' }}>
+            The vault is verified when you save. <code>/api</code> is added automatically if needed (CloudFront serves the API under <code>/api</code>).
+          </div>
         </div>
       )}
 

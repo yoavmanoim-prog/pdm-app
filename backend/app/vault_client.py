@@ -26,13 +26,31 @@ class VaultClient:
         resp.raise_for_status()
         return resp.json()
 
-    def ping(self) -> bool:
-        """Check if the remote vault is reachable."""
+    def health(self) -> str:
+        """Probe the remote /health endpoint.
+
+        Returns one of:
+          "ok"            — a healthy vault answered
+          "misconfigured" — something answered but it isn't a vault health
+                            endpoint (e.g. the URL is missing /api and we hit
+                            the frontend, which returns HTML, not JSON)
+          "unreachable"   — the connection itself failed
+        """
         try:
-            data = self._get("/health")
-            return data.get("healthy", False)
+            resp = httpx.get(f"{self.base_url}/health", timeout=10)
         except Exception:
-            return False
+            return "unreachable"
+        try:
+            data = resp.json()
+        except Exception:
+            return "misconfigured"
+        if isinstance(data, dict) and data.get("healthy"):
+            return "ok"
+        return "misconfigured"
+
+    def ping(self) -> bool:
+        """True only if a healthy vault answered."""
+        return self.health() == "ok"
 
     def push_commits(self, commits: list[dict], repository: dict = None,
                      documents: list = None, bom_entries: list = None,

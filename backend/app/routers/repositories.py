@@ -12,10 +12,39 @@ from app.models.revision import Revision
 from app.models.revision_request import RevisionRequest
 from app.models.audit import AuditEvent
 from app.schemas.repositories import RepositoryCreate, RepositoryUpdate, RepositoryResponse, RepositoryListResponse
+from app.vault_client import VaultClient
 from app import storage
 
 # all routes in this file are prefixed with /repos
 router = APIRouter(prefix="/repos", tags=["repositories"])
+
+
+def _resolve_remote_url(raw: str) -> str:
+    """Turn a user-entered remote vault URL into a reachable base URL.
+
+    Behind CloudFront the backend lives under /api, but a direct backend
+    (e.g. http://localhost:8001) has no prefix — so we can't just append /api
+    blindly. Instead we probe: try the URL as given, then with /api appended,
+    and store whichever a healthy vault answers on. Raises if neither works,
+    giving the user immediate feedback at link time instead of a silent
+    "remote_unreachable" badge later.
+    """
+    url = raw.strip().rstrip("/")
+    candidates = [url]
+    if not url.endswith("/api"):
+        candidates.append(f"{url}/api")
+
+    for candidate in candidates:
+        if VaultClient(remote_url=candidate).ping():
+            return candidate
+
+    raise HTTPException(
+        status_code=502,
+        detail=(
+            f"No reachable vault found at '{url}' (tried with and without /api). "
+            "Check the URL and that the remote vault is running."
+        ),
+    )
 
 
 @router.post("/", response_model=RepositoryResponse, status_code=201)
@@ -76,7 +105,9 @@ def update_repository(repo_id: uuid.UUID, body: RepositoryUpdate, db: Session = 
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     if body.remote_url is not None:
-        repo.remote_url = body.remote_url.strip().rstrip("/") or None
+        cleaned = body.remote_url.strip().rstrip("/")
+        # empty string clears the link; otherwise probe and store a reachable URL
+        repo.remote_url = _resolve_remote_url(cleaned) if cleaned else None
     db.commit()
     db.refresh(repo)
     return repo
