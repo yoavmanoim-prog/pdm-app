@@ -1,11 +1,15 @@
 import uuid
-from sqlalchemy import String, Integer, ForeignKey, Text
+from sqlalchemy import String, Integer, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 
 class BOMEntry(Base):
     __tablename__ = "bom_entries"
+    # a component can appear at most once in a given assembly's BOM
+    __table_args__ = (
+        UniqueConstraint("assembly_id", "component_id", name="uq_bom_assembly_component"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # the assembly drawing that contains this component

@@ -1,11 +1,15 @@
 import uuid
-from sqlalchemy import String, ForeignKey
+from sqlalchemy import String, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 
 class Document(Base):
     __tablename__ = "documents"
+    # part numbers must be unique within a repository (mirrors the app check)
+    __table_args__ = (
+        UniqueConstraint("repository_id", "part_number", name="uq_documents_repo_part_number"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     repository_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repositories.id"), nullable=False)
