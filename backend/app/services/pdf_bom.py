@@ -23,6 +23,20 @@ PART_NUMBER_RE = re.compile(r'\b[A-Z]{2,6}-[A-Z]{2,6}-\d{3,8}\b')
 _OCR_THRESHOLD = 30
 
 
+def _token_present(text_upper: str, token: str) -> bool:
+    """True if token appears as a standalone part number in the text.
+
+    A plain substring test would let AB-CD-1 match inside AB-CD-12, creating
+    false BOM links. We require that the characters bordering the match are
+    not part-number characters (letters, digits, hyphen), so only whole
+    part-number tokens count. Both args are expected to be uppercase.
+    """
+    if not token:
+        return False
+    pattern = r'(?<![A-Z0-9-])' + re.escape(token) + r'(?![A-Z0-9-])'
+    return re.search(pattern, text_upper) is not None
+
+
 def _extract_text(pdf_bytes: bytes) -> str:
     """Extract text from PDF. Falls back to OCR for image-based (scanned) drawings."""
     parts = []
@@ -105,7 +119,7 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
     created = 0
     for candidate in repo_docs:
         base = candidate.part_number.split(' -')[0].strip().upper()
-        if base not in text_upper:
+        if not _token_present(text_upper, base):
             continue
         if db.query(BOMEntry).filter(
             BOMEntry.assembly_id == doc_id,
@@ -186,7 +200,7 @@ def retro_link_fathers(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session) -> in
             logger.warning("pdf_bom: could not read S3 PDF for %s: %s", assembly.part_number, e)
             continue
 
-        if target not in text_upper:
+        if not _token_present(text_upper, target):
             continue
 
         db.add(BOMEntry(

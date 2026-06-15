@@ -122,7 +122,14 @@ def _build_node(doc: Document, db: Session, visited: set) -> dict:
 def get_product_tree(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     """Top-level nodes = documents not used as a component anywhere."""
     all_docs = db.query(Document).filter(Document.repository_id == repo_id).all()
-    component_ids = {e.component_id for e in db.query(BOMEntry).all()}
+    # Only this repo's BOM links matter — joining through the component document
+    # scopes the query to this repo instead of scanning every BOM entry.
+    component_ids = {
+        cid
+        for (cid,) in db.query(BOMEntry.component_id)
+        .join(Document, Document.id == BOMEntry.component_id)
+        .filter(Document.repository_id == repo_id)
+    }
     roots = [d for d in all_docs if d.id not in component_ids]
     return [_build_node(doc, db, set()) for doc in roots]
 

@@ -108,9 +108,12 @@ def delete_repository(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             if cf.s3_key_pdf
         ]
 
+    # revision requests carry repository_id directly — scope by it so none are
+    # left behind even if a request's document row is already gone
+    db.query(RevisionRequest).filter(RevisionRequest.repository_id == repo_id).delete(synchronize_session=False)
+
     # delete leaf records first (no children pointing to them)
     if doc_ids:
-        db.query(RevisionRequest).filter(RevisionRequest.document_id.in_(doc_ids)).delete(synchronize_session=False)
         db.query(BOMEntry).filter(BOMEntry.assembly_id.in_(doc_ids)).delete(synchronize_session=False)
         db.query(BOMEntry).filter(BOMEntry.component_id.in_(doc_ids)).delete(synchronize_session=False)
         db.query(Revision).filter(Revision.document_id.in_(doc_ids)).delete(synchronize_session=False)
