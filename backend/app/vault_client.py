@@ -19,6 +19,14 @@ class VaultClient:
         if resp.status_code == 404 and raise_on_404:
             raise RemoteRepoNotFoundError(resp.json().get("detail", "Not found"))
         resp.raise_for_status()
+        # CloudFront's SPA fallback can turn a backend 404 into a 200 that serves
+        # the frontend index.html. If we asked the API for JSON and got HTML, the
+        # request never reached the backend — for a repo-scoped GET that means the
+        # repo isn't there; otherwise it's a routing/config problem.
+        if "application/json" not in resp.headers.get("content-type", "").lower():
+            if raise_on_404:
+                raise RemoteRepoNotFoundError("Remote returned HTML, not JSON — repo not found behind the CDN")
+            raise RuntimeError(f"Expected JSON from {path}, got {resp.headers.get('content-type')!r}")
         return resp.json()
 
     def _post(self, path: str, json=None, **kwargs):
