@@ -64,10 +64,10 @@ def sync_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         remote_data = client.pull_snapshot(str(repo_id))
         behind = sum(1 for c in remote_data["commits"] if c["short_hash"] not in local_hashes)
     except RemoteRepoNotFoundError:
-        if repo:
-            repo.remote_url = None
-            db.commit()
-        return {"status": "remote_deleted", "ahead": 0, "behind": 0}
+        # Remote doesn't have this repo yet — everything local is ahead. Keep the
+        # link so the next push re-creates it (don't auto-unlink behind the user).
+        total = len(local_hashes)
+        return {"status": "ahead" if total else "synced", "ahead": total, "behind": 0}
     except Exception:
         behind = 0
 
@@ -88,15 +88,34 @@ def sync_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     _require_local()
 
-    unpushed = db.query(Commit).filter(
+    repo = db.get(Repository, repo_id)
+    client = VaultClient(remote_url=repo.remote_url if repo else None)
+
+    # Ask the remote what it already has, then send exactly what it's missing,
+    # ordered by timestamp so a parent commit always lands before its children.
+    # Relying on the local is_local flag instead desyncs whenever the remote
+    # loses history (deleted & recreated, restored from backup, ...): push would
+    # send a commit whose parent the remote lacks and hit a foreign-key error.
+    try:
+        snapshot = client.pull_snapshot(str(repo_id))
+        remote_hashes = {c["short_hash"] for c in snapshot["commits"]}
+    except RemoteRepoNotFoundError:
+        # The remote doesn't have this repo (never pushed, or deleted/lost on the
+        # remote). Re-create it by sending full history — like 'git push' to a
+        # remote whose branch was removed.
+        remote_hashes = set()
+    except Exception as e:
+        # Can't determine remote state — refuse rather than push a partial set
+        # that might violate a parent foreign key on the remote.
+        raise HTTPException(status_code=502, detail=f"Remote vault unreachable: {e}")
+
+    all_local = db.query(Commit).filter(
         Commit.repository_id == repo_id,
-        Commit.is_local.is_(True),
     ).order_by(Commit.timestamp).all()
+    unpushed = [c for c in all_local if c.short_hash not in remote_hashes]
 
     if not unpushed:
         return {"pushed": 0, "message": "Nothing to push"}
-
-    repo = db.get(Repository, repo_id)
 
     # send ALL documents and BOM entries for the whole repo — not just the docs
     # in the current push batch — so the remote always has the full picture.
@@ -142,30 +161,6 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         for c in all_commits
         if c.diff_report is not None
     ]
-
-    client = VaultClient(remote_url=repo.remote_url)
-
-    # has this repo ever been pushed before? a previously-pushed commit is no
-    # longer local-only. We only treat a remote 404 as "the repo was deleted"
-    # when the repo was previously synced — on a brand-new repo's first push the
-    # remote legitimately doesn't have it yet, and push_commits will create it.
-    previously_synced = db.query(Commit).filter(
-        Commit.repository_id == repo_id,
-        Commit.is_local.is_(False),
-    ).first() is not None
-
-    # check the remote repo still exists before pushing — push would otherwise
-    # silently re-create a repo that was deliberately deleted on the remote
-    try:
-        client.pull_snapshot(str(repo_id))
-    except RemoteRepoNotFoundError:
-        if previously_synced:
-            repo.remote_url = None
-            db.commit()
-            raise HTTPException(status_code=404, detail="Remote repository was deleted — link cleared")
-        # first push of a new repo — remote doesn't have it yet, which is expected
-    except Exception:
-        pass  # unreachable remote is handled below when push_commits fails
 
     try:
         result = client.push_commits(
@@ -223,10 +218,9 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     try:
         remote = client.pull_snapshot(str(repo_id), since_hash=since_hash)
     except RemoteRepoNotFoundError:
-        if repo:
-            repo.remote_url = None
-            db.commit()
-        raise HTTPException(status_code=404, detail="Remote repository was deleted — link cleared")
+        # Nothing to pull — the remote doesn't have this repo yet. Keep the link
+        # so the user can push to create it (don't auto-unlink behind them).
+        raise HTTPException(status_code=404, detail="Remote has no such repository yet — push first to create it")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Remote vault unreachable: {e}")
 
