@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.database import get_db
 from app.config import settings
+from app import storage
 from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
@@ -282,6 +283,10 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         db.flush()
 
         for f in c.get("files", []):
+            # copy the PDF from the remote vault's prefix into this local vault's
+            # own prefix so each vault owns its copy (deletes stay isolated)
+            if f.get("s3_key_pdf"):
+                storage.copy_from_peer(f["s3_key_pdf"])
             db.add(CommitFile(
                 commit_id=commit.id,
                 document_id=uuid.UUID(f["document_id"]),

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.database import get_db
 from app.config import settings
+from app import storage
 from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.repository import Repository
@@ -169,6 +170,10 @@ def receive_commits(payload: PushPayload, db: Session = Depends(get_db)):
         db.flush()
 
         for f in c.files:
+            # copy the PDF from the pushing vault's prefix into this vault's own
+            # prefix so the remote owns its copy (deletes stay isolated)
+            if f.s3_key_pdf:
+                storage.copy_from_peer(f.s3_key_pdf)
             db.add(CommitFile(
                 commit_id=commit.id,
                 document_id=f.document_id,
