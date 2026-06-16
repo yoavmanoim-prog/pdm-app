@@ -14,6 +14,9 @@ class RepositoryCreate(BaseModel):
 
 class RepositoryUpdate(BaseModel):
     remote_url: str | None = None
+    # which remote repo to link to; None = create a new one on the remote (use
+    # this repo's own id). Only applied when remote_url is provided.
+    remote_repo_id: uuid.UUID | None = None
 
 
 class RepositoryResponse(BaseModel):
@@ -22,6 +25,7 @@ class RepositoryResponse(BaseModel):
     name: str
     description: str | None
     remote_url: str | None
+    remote_repo_id: uuid.UUID | None = None
     watch_path: str | None = None
     created_at: datetime
 

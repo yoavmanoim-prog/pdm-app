@@ -233,3 +233,78 @@ def test_pull_missing_remote_repo_returns_404(vaults):
     _link_local_repo(vaults.local, missing)
     r = vaults.client.post(f"/sync/pull/{missing}")
     assert r.status_code == 404
+
+
+# ── Linking to a chosen remote repo (different id) ─────────────────────────────
+
+def test_push_to_chosen_remote_repo_id(vaults):
+    """A local repo linked to a remote repo with a DIFFERENT id pushes its
+    commits/docs under the remote's id (populate an empty remote from local)."""
+    # an empty remote repo to receive the push
+    rdb = vaults.remote()
+    remote_repo = Repository(name="Remote Gearbox")
+    rdb.add(remote_repo)
+    rdb.commit()
+    remote_id = remote_repo.id
+    rdb.close()
+
+    # local repo (its own id) linked to remote_repo_id = remote_id
+    ldb = vaults.local()
+    repo = Repository(name="Local Gearbox", remote_url="http://remote.test", remote_repo_id=remote_id)
+    ldb.add(repo)
+    ldb.flush()
+    doc = Document(repository_id=repo.id, part_number="GB-1", title="Housing", doc_type="detail")
+    ldb.add(doc)
+    ldb.flush()
+    commit = Commit(repository_id=repo.id, author="a", message="m", short_hash="aaaa1111",
+                    is_local=True, protocol_violations=[])
+    ldb.add(commit)
+    ldb.flush()
+    ldb.add(CommitFile(commit_id=commit.id, document_id=doc.id, s3_key_pdf="k",
+                       content_hash="h", change_type="added"))
+    ldb.commit()
+    local_id, doc_id = repo.id, doc.id
+    ldb.close()
+
+    r = vaults.client.post(f"/sync/push/{local_id}")
+    assert r.status_code == 200, r.text
+    assert r.json()["pushed"] == 1
+
+    # commit + doc landed under the REMOTE repo id, not the local id
+    rdb = vaults.remote()
+    assert rdb.query(Commit).filter(Commit.short_hash == "aaaa1111").one().repository_id == remote_id
+    assert rdb.get(Document, doc_id).repository_id == remote_id
+    rdb.close()
+
+
+def test_pull_from_chosen_remote_repo_id(vaults):
+    """Pulling from a remote repo with a different id stores everything under the
+    LOCAL repo id (clone a populated remote into a fresh local repo)."""
+    ids = _seed_remote_repo(vaults.remote)  # remote repo with commit bbbb2222, docs, etc.
+
+    ldb = vaults.local()
+    local_repo = Repository(name="Local", remote_url="http://remote.test", remote_repo_id=ids.repo_id)
+    ldb.add(local_repo)
+    ldb.commit()
+    local_id = local_repo.id
+    ldb.close()
+
+    r = vaults.client.post(f"/sync/pull/{local_id}")
+    assert r.status_code == 200, r.text
+    assert r.json()["pulled"] == 1
+
+    ldb = vaults.local()
+    assert ldb.query(Commit).filter(Commit.short_hash == "bbbb2222").one().repository_id == local_id
+    assert ldb.get(Document, ids.assembly_id).repository_id == local_id
+    ldb.close()
+
+
+def test_remote_repos_endpoint_lists_remote(vaults, monkeypatch):
+    """The link picker endpoint returns the remote vault's repos."""
+    from app.vault_client import VaultClient
+    monkeypatch.setattr(VaultClient, "health", lambda self: "ok")  # health() bypasses the test _get
+    _seed_remote_repo(vaults.remote)  # creates remote repo "Gearbox"
+
+    r = vaults.client.get("/sync/remote-repos?remote_url=http://remote.test")
+    assert r.status_code == 200, r.text
+    assert "Gearbox" in [x["name"] for x in r.json()]

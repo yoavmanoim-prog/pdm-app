@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo, createReleaseRequest, listReleaseRequests, approveReleaseRequest, denyReleaseRequest } from '../api'
+import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo, listRemoteRepos, createReleaseRequest, listReleaseRequests, approveReleaseRequest, denyReleaseRequest } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 import { useMode } from '../context/ModeContext'
@@ -31,6 +31,9 @@ function RepositoryInner() {
   const [selectedDiff, setSelectedDiff] = useState(null)
   const [linkingRemote, setLinkingRemote] = useState(false)
   const [remoteUrlInput, setRemoteUrlInput] = useState('')
+  const [remoteRepos, setRemoteRepos] = useState(null)   // null = not fetched yet
+  const [fetchingRepos, setFetchingRepos] = useState(false)
+  const [linkErr, setLinkErr] = useState(null)
 
   // re-runs whenever version increments — triggered by any action anywhere on the page
   useEffect(() => {
@@ -76,12 +79,29 @@ function RepositoryInner() {
       if (e.message.includes('Remote repository was deleted')) refresh()
     }
   }
-  const handleLinkRemote = async () => {
+  const openLinkDialog = () => {
+    setRemoteUrlInput(repo?.remote_url || '')
+    setRemoteRepos(null)
+    setLinkErr(null)
+    setLinkingRemote(true)
+  }
+  // step 1: look up the repos on the entered remote vault
+  const handleFetchRemoteRepos = async () => {
+    const url = remoteUrlInput.trim()
+    if (!url) return setLinkErr('Enter the remote vault URL first')
+    setFetchingRepos(true); setLinkErr(null)
     try {
-      await linkRepo(repoId, remoteUrlInput.trim())
+      setRemoteRepos(await listRemoteRepos(url))
+    } catch (e) { setLinkErr(e.message); setRemoteRepos(null) }
+    finally { setFetchingRepos(false) }
+  }
+  // step 2: link to a chosen remote repo (remoteRepoId null = create a new one)
+  const handleLinkRemote = async (remoteRepoId) => {
+    try {
+      await linkRepo(repoId, remoteUrlInput.trim(), remoteRepoId)
       setLinkingRemote(false)
       refresh()
-    } catch (e) { alert(e.message) }
+    } catch (e) { setLinkErr(e.message) }
   }
 
   if (loading) return <p>Loading…</p>
@@ -133,12 +153,12 @@ function RepositoryInner() {
           {mode === 'local' && repo && (
             repo.remote_url ? (
               <span style={{ fontSize: '11px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '10px', cursor: 'pointer' }}
-                title="Click to change remote URL"
-                onClick={() => { setRemoteUrlInput(repo.remote_url); setLinkingRemote(true) }}>
+                title="Click to change the remote link"
+                onClick={openLinkDialog}>
                 ⇄ {repo.remote_url.replace(/^https?:\/\//, '')}
               </span>
             ) : (
-              <button onClick={() => { setRemoteUrlInput(''); setLinkingRemote(true) }} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>
+              <button onClick={openLinkDialog} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>
                 Link Remote
               </button>
             )
@@ -151,22 +171,54 @@ function RepositoryInner() {
 
       {linkingRemote && (
         <div style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '6px', padding: '12px', marginBottom: '16px' }}>
+          {/* Step 1 — enter the remote vault URL and look up its repos */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <span style={{ fontSize: '13px', color: '#555', whiteSpace: 'nowrap' }}>Remote vault URL:</span>
             <input
               autoFocus
               value={remoteUrlInput}
-              onChange={e => setRemoteUrlInput(e.target.value)}
+              onChange={e => { setRemoteUrlInput(e.target.value); setRemoteRepos(null) }}
               placeholder="https://your-remote-vault.example.com/api"
               style={{ flex: 1, padding: '6px 10px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }}
-              onKeyDown={e => { if (e.key === 'Enter') handleLinkRemote(); if (e.key === 'Escape') setLinkingRemote(false) }}
+              onKeyDown={e => { if (e.key === 'Enter') handleFetchRemoteRepos(); if (e.key === 'Escape') setLinkingRemote(false) }}
             />
-            <button onClick={handleLinkRemote} style={btnSmall}>Save</button>
+            <button onClick={handleFetchRemoteRepos} disabled={fetchingRepos} style={btnSmall}>
+              {fetchingRepos ? 'Looking…' : 'Find repos'}
+            </button>
             <button onClick={() => setLinkingRemote(false)} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>Cancel</button>
           </div>
           <div style={{ fontSize: '11px', color: '#888', marginTop: '6px' }}>
-            The vault is verified when you save. <code>/api</code> is added automatically if needed (CloudFront serves the API under <code>/api</code>).
+            <code>/api</code> is added automatically if needed (CloudFront serves the API under <code>/api</code>).
           </div>
+
+          {linkErr && <div style={{ fontSize: '12px', color: '#c0392b', marginTop: '8px' }}>{linkErr}</div>}
+
+          {/* Step 2 — choose which remote repo to connect to, or create a new one */}
+          {remoteRepos && (
+            <div style={{ marginTop: '12px', borderTop: '1px solid #ddd', paddingTop: '10px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#333', marginBottom: '6px' }}>
+                Connect this repo to:
+              </div>
+              {remoteRepos.length === 0 && (
+                <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>No repos on the remote yet.</div>
+              )}
+              {remoteRepos.map(rr => (
+                <div key={rr.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', border: '1px solid #e5e5e5', borderRadius: '4px', marginBottom: '6px', background: '#fff' }}>
+                  <span style={{ fontSize: '13px' }}>
+                    {rr.name} <span style={{ color: '#aaa', fontSize: '11px' }}>· {rr.document_count} docs · {rr.id.slice(0, 8)}</span>
+                  </span>
+                  <button onClick={() => handleLinkRemote(rr.id)} style={btnSmall}>Connect</button>
+                </div>
+              ))}
+              <button
+                onClick={() => handleLinkRemote(null)}
+                style={{ ...btnSmall, background: '#e8e8f0', color: '#444', marginTop: '4px' }}
+                title="Create a new repository on the remote from this local repo"
+              >
+                + Create new on the remote
+              </button>
+            </div>
+          )}
         </div>
       )}
 

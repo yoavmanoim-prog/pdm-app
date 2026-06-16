@@ -108,19 +108,34 @@ def update_repository(repo_id: uuid.UUID, body: RepositoryUpdate, db: Session = 
         cleaned = body.remote_url.strip().rstrip("/")
         # empty string clears the link; otherwise probe and store a reachable URL
         new_url = _resolve_remote_url(cleaned) if cleaned else None
-        if new_url and new_url != repo.remote_url:
-            # Pointing at a different remote — none of this repo's commits exist
-            # there yet. Mark every commit unpushed so the next push re-creates
-            # the repo on the new remote and sends full history. Without this,
-            # commits stay is_local=False from a past push, push reads that as
-            # "previously synced", and a 404 from the fresh remote is misread as
-            # "remote deleted" — which clears the link and blocks every push.
-            # Re-linking the SAME remote is safe: it dedups commits by id.
+        # which remote repo to target: a chosen one, or None = create new (own id)
+        new_target = body.remote_repo_id if new_url else None
+
+        # if connecting to a specific remote repo, make sure it actually exists
+        # there, so we link to it rather than silently creating a stray repo
+        if new_url and new_target is not None:
+            try:
+                remote_ids = {str(r["id"]) for r in VaultClient(remote_url=new_url).list_repos()}
+            except Exception:
+                remote_ids = set()
+            if str(new_target) not in remote_ids:
+                raise HTTPException(status_code=404, detail="Chosen remote repository not found on that vault")
+
+        # If the effective remote target (url OR repo id) changed, none of this
+        # repo's commits exist there yet. Mark every commit unpushed so the next
+        # push re-creates/populates the target and sends full history. Without
+        # this, commits stay is_local=False from a past push, push reads that as
+        # "previously synced", and a 404 from the fresh target is misread as
+        # "remote deleted" — which clears the link and blocks every push.
+        target_changed = (new_url != repo.remote_url) or (new_target != repo.remote_repo_id)
+        if new_url and target_changed:
             db.query(Commit).filter(
                 Commit.repository_id == repo_id,
                 Commit.is_local.is_(False),
             ).update({"is_local": True}, synchronize_session=False)
+
         repo.remote_url = new_url
+        repo.remote_repo_id = new_target if new_url else None
     db.commit()
     db.refresh(repo)
     return repo
