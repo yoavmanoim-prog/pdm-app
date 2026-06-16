@@ -308,3 +308,40 @@ def test_remote_repos_endpoint_lists_remote(vaults, monkeypatch):
     r = vaults.client.get("/sync/remote-repos?remote_url=http://remote.test")
     assert r.status_code == 200, r.text
     assert "Gearbox" in [x["name"] for x in r.json()]
+
+
+def test_pull_flattens_branch_id(vaults):
+    """Pulled commits are stored flat (branch_id=None). Branches are local-only,
+    so the remote's branch rows don't exist here — copying branch_id through
+    would violate commits_branch_id_fkey (caught while clone-testing a remote
+    repo whose commits carried a branch_id)."""
+    from app.models.branch import Branch
+    rdb = vaults.remote()
+    repo = Repository(name="Branchy")
+    rdb.add(repo)
+    rdb.flush()
+    branch = Branch(repository_id=repo.id, name="feature/x", created_by="a")
+    rdb.add(branch)
+    rdb.flush()
+    rdb.add(Commit(repository_id=repo.id, branch_id=branch.id, author="a", message="m",
+                   short_hash="brnch001", is_local=False, protocol_violations=[]))
+    rdb.commit()
+    remote_id = repo.id
+    rdb.close()
+
+    ldb = vaults.local()
+    local_repo = Repository(name="Branchy-local", remote_url="http://remote.test", remote_repo_id=remote_id)
+    ldb.add(local_repo)
+    ldb.commit()
+    local_id = local_repo.id
+    ldb.close()
+
+    r = vaults.client.post(f"/sync/pull/{local_id}")
+    assert r.status_code == 200, r.text
+    assert r.json()["pulled"] == 1
+
+    ldb = vaults.local()
+    c = ldb.query(Commit).filter(Commit.short_hash == "brnch001").one()
+    assert c.branch_id is None        # flattened, no FK violation
+    assert c.repository_id == local_id
+    ldb.close()
