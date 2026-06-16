@@ -12,10 +12,18 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
+    # When ingress.host is set (staging/dev nip.io names) the rule is host-scoped
+    # so each environment is addressable on the shared ELB. Production leaves it
+    # empty -> catch-all, because CloudFront forwards its own domain as the Host
+    # header and would not match a specific host.
+{{- if .Values.ingress.host }}
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+{{- else }}
     - http:
+{{- end }}
         paths:
           # /api/(.*)  →  FastAPI receives /$2 (e.g. /repos/, /repos/123/commit)
-          # No host filter — CloudFront sends requests with its own domain as Host.
           - path: /api(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
