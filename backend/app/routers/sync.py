@@ -303,7 +303,10 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             id=uuid.UUID(c["id"]),
             # store under THIS local repo, not the remote's repo id
             repository_id=repo_id,
-            branch_id=uuid.UUID(c["branch_id"]) if c["branch_id"] else None,
+            # pulled commits are flat main-line history — branches are local-only
+            # and the remote's branch rows don't exist here, so never carry a
+            # branch_id (mirrors how the remote stores pushed commits flat).
+            branch_id=None,
             parent_id=uuid.UUID(c["parent_id"]) if c["parent_id"] else None,
             author=c["author"],
             message=c["message"],
