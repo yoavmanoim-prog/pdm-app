@@ -14,7 +14,11 @@ service:
 
 ingress:
   enabled: true
-  host: pdm.52.202.248.204.nip.io
+  # Empty = catch-all (no host filter). Production keeps this empty so CloudFront
+  # (which sends its own domain as the Host header) still reaches it. Staging and
+  # dev override this per-env with a nip.io host so they're individually
+  # addressable on the shared ELB, e.g. staging.52.202.248.204.nip.io
+  host: ""
 
 resources:
   requests:
