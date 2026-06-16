@@ -90,6 +90,9 @@ def vaults(monkeypatch):
 
     monkeypatch.setattr(VaultClient, "_get", fake_get)
     monkeypatch.setattr(VaultClient, "_post", fake_post)
+    # push/pull copy PDF bytes across vault prefixes; stub it so e2e tests that
+    # seed fake S3 keys don't reach real S3
+    monkeypatch.setattr("app.storage.copy_from_peer", lambda *a, **k: True)
 
     prev_mode = config.settings.VAULT_MODE
     config.settings.VAULT_MODE = "local"
