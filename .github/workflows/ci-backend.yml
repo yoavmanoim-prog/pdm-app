@@ -140,8 +140,35 @@ jobs:
           git commit -am "ci: update backend image to ${IMAGE_TAG}"
           git push
 
+  # Post-deploy smoke test on staging. After the image tag is committed to the
+  # GitOps repo, ArgoCD syncs it asynchronously, so we poll /health until the
+  # deployment is serving. Runs only on develop (the staging branch), and only
+  # if the STAGING_URL repo variable is set (Settings → Variables → Actions).
+  smoke-test:
+    needs: update-gitops
+    if: github.ref == 'refs/heads/develop' && vars.STAGING_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke test staging /health
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          base="${STAGING_URL%/}"
+          echo "Polling ${base}/health (ArgoCD syncs the new image asynchronously)…"
+          for i in $(seq 1 30); do
+            if body=$(curl -fsS --max-time 10 "${base}/health" 2>/dev/null) \
+                 && echo "$body" | grep -q '"healthy"[[:space:]]*:[[:space:]]*true'; then
+              echo "✓ staging healthy: $body"
+              exit 0
+            fi
+            echo "attempt ${i}/30: not healthy yet, retrying in 10s…"
+            sleep 10
+          done
+          echo "✗ staging did not report healthy within ~5 minutes"
+          exit 1
+
   notify-slack:
-    needs: [lint-and-test, build-and-push]
+    needs: [lint-and-test, build-and-push, smoke-test]
     if: failure()
     runs-on: ubuntu-latest
     steps:
