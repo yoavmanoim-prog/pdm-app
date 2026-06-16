@@ -34,6 +34,33 @@ def _parse_dt(value):
     return datetime.fromisoformat(value)
 
 
+def _remote_target(repo) -> uuid.UUID:
+    """The repo id to use when talking to the remote vault: the linked
+    remote_repo_id if set, otherwise this repo's own id (legacy: same id on both
+    sides). Lets a local repo sync with a remote repo that has a different id."""
+    return repo.remote_repo_id or repo.id
+
+
+# ── Remote repo discovery (for the link picker) ────────────────────────────────
+
+@router.get("/remote-repos")
+def list_remote_repos(remote_url: str, db: Session = Depends(get_db)):
+    """List repos on a remote vault so the user can choose which one to link to
+    (or decide to create a new one). Used by the link dialog before saving."""
+    _require_local()
+    client = VaultClient(remote_url=remote_url)
+    if client.health() != "ok":
+        raise HTTPException(status_code=502, detail="Remote vault unreachable or misconfigured")
+    try:
+        repos = client.list_repos()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not list remote repos: {e}")
+    return [
+        {"id": str(r["id"]), "name": r.get("name"), "document_count": r.get("document_count", 0)}
+        for r in repos
+    ]
+
+
 # ── Status ────────────────────────────────────────────────────────────────────
 
 @router.get("/status/{repo_id}")
@@ -62,7 +89,7 @@ def sync_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         .filter(Commit.repository_id == repo_id).all()
     }
     try:
-        remote_data = client.pull_snapshot(str(repo_id))
+        remote_data = client.pull_snapshot(str(_remote_target(repo)))
         behind = sum(1 for c in remote_data["commits"] if c["short_hash"] not in local_hashes)
     except RemoteRepoNotFoundError:
         # Remote doesn't have this repo yet — everything local is ahead. Keep the
@@ -91,6 +118,8 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     repo = db.get(Repository, repo_id)
     client = VaultClient(remote_url=repo.remote_url if repo else None)
+    # the repo id on the remote (may differ from ours if linked to a chosen repo)
+    target = _remote_target(repo)
 
     # Has this repo ever been pushed? A non-local commit means yes. This tells a
     # genuine remote deletion apart from a never-synced repo's first push: a 404
@@ -107,7 +136,7 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     # loses history (deleted & recreated, restored from backup, ...): push would
     # send a commit whose parent the remote lacks and hit a foreign-key error.
     try:
-        snapshot = client.pull_snapshot(str(repo_id))
+        snapshot = client.pull_snapshot(str(target))
         remote_hashes = {c["short_hash"] for c in snapshot["commits"]}
     except RemoteRepoNotFoundError:
         if previously_synced:
@@ -146,7 +175,8 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     for c in unpushed:
         payload.append({
             "id": str(c.id),
-            "repository_id": str(c.repository_id),
+            # remap to the remote's repo id so commits land under the linked repo
+            "repository_id": str(target),
             "branch_id": str(c.branch_id) if c.branch_id else None,
             "parent_id": str(c.parent_id) if c.parent_id else None,
             "author": c.author,
@@ -179,9 +209,10 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     try:
         result = client.push_commits(
             payload,
-            repository={"id": str(repo.id), "name": repo.name, "description": repo.description},
+            # repository + documents are remapped to the remote's repo id (target)
+            repository={"id": str(target), "name": repo.name, "description": repo.description},
             documents=[
-                {"id": str(d.id), "repository_id": str(d.repository_id),
+                {"id": str(d.id), "repository_id": str(target),
                  "part_number": d.part_number, "title": d.title, "doc_type": d.doc_type}
                 for d in all_docs.values()
             ],
@@ -229,8 +260,9 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
     repo = db.get(Repository, repo_id)
     client = VaultClient(remote_url=repo.remote_url if repo else None)
+    target = _remote_target(repo)
     try:
-        remote = client.pull_snapshot(str(repo_id), since_hash=since_hash)
+        remote = client.pull_snapshot(str(target), since_hash=since_hash)
     except RemoteRepoNotFoundError:
         # Nothing to pull — the remote doesn't have this repo yet. Keep the link
         # so the user can push to create it (don't auto-unlink behind them).
@@ -244,7 +276,8 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
         if not doc:
             db.add(Document(
                 id=uuid.UUID(doc_data["id"]),
-                repository_id=uuid.UUID(doc_data["repository_id"]),
+                # store under THIS local repo, not the remote's repo id
+                repository_id=repo_id,
                 part_number=doc_data["part_number"],
                 title=doc_data["title"],
                 doc_type=doc_data["doc_type"],
@@ -268,7 +301,8 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
         commit = Commit(
             id=uuid.UUID(c["id"]),
-            repository_id=uuid.UUID(c["repository_id"]),
+            # store under THIS local repo, not the remote's repo id
+            repository_id=repo_id,
             branch_id=uuid.UUID(c["branch_id"]) if c["branch_id"] else None,
             parent_id=uuid.UUID(c["parent_id"]) if c["parent_id"] else None,
             author=c["author"],

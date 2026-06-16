@@ -35,7 +35,11 @@ export const listRepos = () => req('GET', '/repos/')
 export const createRepo = body => req('POST', '/repos/', body)
 export const getRepo = id => req('GET', `/repos/${id}`)
 export const deleteRepo = id => req('DELETE', `/repos/${id}`)
-export const linkRepo = (id, remoteUrl) => req('PATCH', `/repos/${id}`, { remote_url: remoteUrl })
+export const linkRepo = (id, remoteUrl, remoteRepoId = null) =>
+  req('PATCH', `/repos/${id}`, { remote_url: remoteUrl, remote_repo_id: remoteRepoId })
+// list repos on a remote vault so the user can pick which one to link to
+export const listRemoteRepos = remoteUrl =>
+  req('GET', `/sync/remote-repos?remote_url=${encodeURIComponent(remoteUrl)}`)
 
 // Documents
 export const listDocuments = repoId => req('GET', `/repos/${repoId}/documents/`)

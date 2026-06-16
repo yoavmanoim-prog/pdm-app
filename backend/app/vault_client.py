@@ -72,6 +72,11 @@ class VaultClient:
             "diff_report_patches": diff_report_patches or [],
         })
 
+    def list_repos(self) -> list[dict]:
+        """List the repositories on the remote vault — used by the link picker so
+        a local repo can be connected to a chosen remote repo (or a new one)."""
+        return self._get("/repos/")
+
     def pull_snapshot(self, repo_id: str, since_hash: str | None = None) -> dict:
         """Fetch commits, documents, BOM entries, and revisions from the remote vault."""
         params = {}
