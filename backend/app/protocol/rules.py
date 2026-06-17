@@ -28,15 +28,6 @@ BOM_TABLE_KEYWORDS = {
 }
 
 
-def _next_expected(current_code: str) -> str | None:
-    """Returns the letter that must follow current_code."""
-    try:
-        idx = REVISION_SEQUENCE.index(current_code.upper())
-        return REVISION_SEQUENCE[idx + 1] if idx + 1 < len(REVISION_SEQUENCE) else None
-    except ValueError:
-        return None
-
-
 def _extract_pdf_text(document: Document, db: Session) -> str | None:
     """Download and extract all text from the latest committed PDF for a document."""
     latest_file = (
@@ -59,7 +50,13 @@ def _extract_pdf_text(document: Document, db: Session) -> str | None:
 
 
 class RevisionSequenceRule:
-    """Cannot skip revision letters. A must come before B, B before C, etc."""
+    """Revisions move strictly forward through the sequence.
+
+    Skipping is allowed (A -> C is fine), but a release must use a letter that
+    comes *later* than the current revision — no duplicates and no going
+    backward. The first release can be any valid letter (it does not have to be
+    Rev A).
+    """
 
     def validate(self, document: Document, proposed_code: str, db: Session) -> list[str]:
         proposed_code = proposed_code.upper()
@@ -77,18 +74,22 @@ class RevisionSequenceRule:
             .first()
         )
 
+        # first release may be any valid letter — no requirement to start at A
         if latest is None:
-            if proposed_code != "A":
-                return [f"First revision must be Rev A, not Rev {proposed_code}"]
             return []
 
-        expected = _next_expected(latest.revision_code)
-        if expected is None:
-            return ["Maximum revision letter reached"]
-        if proposed_code != expected:
+        try:
+            current_idx = REVISION_SEQUENCE.index(latest.revision_code.upper())
+        except ValueError:
+            # current revision isn't a known letter (legacy data) — don't block
+            return []
+
+        # strictly forward: later letter than the current one. This rejects both
+        # duplicates (same letter) and going backward, while allowing skips.
+        if REVISION_SEQUENCE.index(proposed_code) <= current_idx:
             return [
-                f"Revision sequence violation: current is Rev {latest.revision_code}, "
-                f"next must be Rev {expected}, not Rev {proposed_code}"
+                f"Revision must move forward: current is Rev {latest.revision_code}, "
+                f"so Rev {proposed_code} is not allowed — choose a later letter."
             ]
         return []
 
