@@ -13,10 +13,23 @@ from app.models.bom import BOMEntry
 from app.models.audit import AuditEvent
 from app.schemas.documents import DocumentCreate, DocumentResponse
 from app.config import settings
+from app.settings_config import effective_settings, part_number_matches, mask_from_example
 from app import storage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["documents"])
+
+
+def _check_part_number_format(repo, part_number: str) -> None:
+    """Reject a part number that doesn't match the repo's configured format.
+    No sample configured = no validation (legacy behaviour)."""
+    example = effective_settings(repo)["part_number_example"]
+    if example and not part_number_matches(example, part_number):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Part number '{part_number}' doesn't match this repository's format "
+                   f"'{mask_from_example(example)}' (from sample '{example}'; A = letter, # = digit).",
+        )
 
 
 @router.post("/{repo_id}/documents/", response_model=DocumentResponse, status_code=201)
@@ -38,6 +51,8 @@ def create_document(repo_id: uuid.UUID, body: DocumentCreate, db: Session = Depe
 
     if body.doc_type not in ("detail", "assembly", "part"):
         raise HTTPException(status_code=400, detail="doc_type must be 'detail', 'assembly', or 'part'")
+
+    _check_part_number_format(repo, body.part_number)
 
     doc = Document(
         repository_id=repo_id,
@@ -69,6 +84,7 @@ def edit_document(repo_id: uuid.UUID, doc_id: uuid.UUID, body: DocumentCreate, d
     if body.doc_type not in ("detail", "assembly", "part"):
         raise HTTPException(status_code=400, detail="doc_type must be 'detail', 'assembly', or 'part'")
     if body.part_number != doc.part_number:
+        _check_part_number_format(db.get(Repository, repo_id), body.part_number)
         clash = db.query(Document).filter(
             Document.repository_id == repo_id,
             Document.part_number == body.part_number,

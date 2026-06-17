@@ -11,9 +11,24 @@ from app.models.bom import BOMEntry
 from app.models.revision import Revision
 from app.models.revision_request import RevisionRequest
 from app.models.audit import AuditEvent
-from app.schemas.repositories import RepositoryCreate, RepositoryUpdate, RepositoryResponse, RepositoryListResponse
+from app.schemas.repositories import (
+    RepositoryCreate, RepositoryUpdate, RepositoryResponse, RepositoryListResponse,
+    RepositorySettingsUpdate,
+)
+from app.settings_config import effective_settings, validate_example, mask_from_example
 from app.vault_client import VaultClient
 from app import storage
+
+
+def _settings_response(repo) -> dict:
+    """Per-repo settings shaped for the UI: the sample part number plus the
+    template derived from it."""
+    example = effective_settings(repo)["part_number_example"]
+    return {
+        "part_number_example": example,
+        "part_number_template": mask_from_example(example) if example else None,
+    }
+
 
 # all routes in this file are prefixed with /repos
 router = APIRouter(prefix="/repos", tags=["repositories"])
@@ -147,6 +162,38 @@ def get_repository(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     return repo
+
+
+@router.get("/{repo_id}/settings")
+def get_repository_settings(repo_id: uuid.UUID, db: Session = Depends(get_db)):
+    repo = db.get(Repository, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    return _settings_response(repo)
+
+
+@router.put("/{repo_id}/settings")
+def update_repository_settings(
+    repo_id: uuid.UUID, body: RepositorySettingsUpdate, db: Session = Depends(get_db)
+):
+    repo = db.get(Repository, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    current = dict(repo.settings or {})
+    example = (body.part_number_example or "").strip()
+    if example:
+        err = validate_example(example)
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+        current["part_number_example"] = example
+    else:
+        current.pop("part_number_example", None)  # empty clears the format
+
+    repo.settings = current or None  # reassign so SQLAlchemy persists the JSON
+    db.commit()
+    db.refresh(repo)
+    return _settings_response(repo)
 
 
 @router.delete("/{repo_id}", status_code=204)

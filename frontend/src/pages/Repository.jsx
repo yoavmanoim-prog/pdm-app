@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo, listRemoteRepos, createReleaseRequest, listReleaseRequests, approveReleaseRequest, denyReleaseRequest } from '../api'
+import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo, listRemoteRepos, getRepoSettings, updateRepoSettings, createReleaseRequest, listReleaseRequests, approveReleaseRequest, denyReleaseRequest } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 import { useMode } from '../context/ModeContext'
@@ -224,7 +224,7 @@ function RepositoryInner() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #eee', marginBottom: '20px' }}>
-        {['commits', 'documents', 'branches', 'tree', 'validate', ...(mode === 'remote' ? ['releases'] : ['working dir'])].map(t => (
+        {['commits', 'documents', 'branches', 'tree', 'validate', ...(mode === 'remote' ? ['releases'] : ['working dir', 'settings'])].map(t => (
           <button key={t} onClick={() => setTab(t)}
             style={{ padding: '8px 18px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: tab === t ? 'bold' : 'normal', borderBottom: tab === t ? '2px solid #1a1a2e' : '2px solid transparent', marginBottom: '-2px' }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -282,6 +282,8 @@ function RepositoryInner() {
 
       {/* Working Dir tab — local vault only */}
       {tab === 'working dir' && mode === 'local' && <WorkingDirectory repoId={repoId} />}
+
+      {tab === 'settings' && mode === 'local' && <SettingsTab repoId={repoId} />}
 
       {/* Validate tab */}
       {tab === 'validate' && validation && (
@@ -885,6 +887,76 @@ function Stat({ label, value, color = '#333' }) {
     <div style={{ textAlign: 'center', padding: '12px 20px', background: '#f5f5f5', borderRadius: '6px' }}>
       <div style={{ fontSize: '24px', fontWeight: 'bold', color }}>{value}</div>
       <div style={{ fontSize: '12px', color: '#888' }}>{label}</div>
+    </div>
+  )
+}
+
+// Live preview of the template derived from a sample part number — mirrors the
+// backend: letters -> A, digits -> #, everything else kept literal.
+function deriveTemplate(example) {
+  return [...(example || '')].map(c =>
+    /[A-Za-z]/.test(c) ? 'A' : /[0-9]/.test(c) ? '#' : c
+  ).join('')
+}
+
+function SettingsTab({ repoId }) {
+  const [example, setExample] = useState('')
+  const [savedExample, setSavedExample] = useState(null)
+  const [err, setErr] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    getRepoSettings(repoId)
+      .then(s => { setExample(s.part_number_example || ''); setSavedExample(s.part_number_example || null) })
+      .catch(() => {})
+  }, [repoId])
+
+  const template = deriveTemplate(example)
+
+  const save = async (clear = false) => {
+    setErr(null); setMsg(null)
+    try {
+      const s = await updateRepoSettings(repoId, { part_number_example: clear ? null : example.trim() })
+      setExample(s.part_number_example || '')
+      setSavedExample(s.part_number_example || null)
+      setMsg(clear ? 'Format cleared.' : `Saved — new documents must match ${s.part_number_template}`)
+    } catch (e) { setErr(e.message) }
+  }
+
+  return (
+    <div style={{ maxWidth: '560px' }}>
+      <h3 style={{ marginBottom: '4px' }}>Part-number format</h3>
+      <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
+        Enter a <strong>sample part number</strong>. New documents must match its shape, and the
+        auto-BOM uses it to spot referenced parts. Leave empty to allow any format.
+      </p>
+
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' }}>
+        <input
+          value={example}
+          onChange={e => { setExample(e.target.value); setMsg(null) }}
+          placeholder="e.g. FW-PT-0001"
+          style={{ ...inputStyle, flex: 1 }}
+        />
+        <button onClick={() => save(false)} style={btnSmall} disabled={!example.trim()}>Save</button>
+        {savedExample && (
+          <button onClick={() => save(true)} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>Clear</button>
+        )}
+      </div>
+
+      {example.trim() && (
+        <div style={{ fontSize: '13px', color: '#444', marginTop: '8px' }}>
+          Template: <code style={{ background: '#f0f0f0', padding: '2px 8px', borderRadius: '4px' }}>{template}</code>
+          <span style={{ color: '#888', marginLeft: '8px', fontSize: '12px' }}>(A = letter, # = digit)</span>
+        </div>
+      )}
+      {savedExample && (
+        <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>
+          Current format: sample <code>{savedExample}</code>
+        </div>
+      )}
+      {msg && <div style={{ fontSize: '13px', color: 'green', marginTop: '8px' }}>{msg}</div>}
+      {err && <div style={{ fontSize: '13px', color: '#c0392b', marginTop: '8px' }}>{err}</div>}
     </div>
   )
 }
