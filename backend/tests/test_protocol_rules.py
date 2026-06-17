@@ -23,8 +23,11 @@ def db():
     s.close()
 
 
-def _doc(db):
-    repo = Repository(name="r-" + uuid.uuid4().hex[:8])
+def _doc(db, scheme="letters"):
+    repo = Repository(
+        name="r-" + uuid.uuid4().hex[:8],
+        settings={"revision_scheme": scheme} if scheme != "letters" else None,
+    )
     db.add(repo)
     db.flush()
     doc = Document(repository_id=repo.id, part_number="P-1", title="t", doc_type="part")
@@ -90,3 +93,44 @@ def test_compares_against_latest_release(db):
     _release(db, doc, "D", minutes=10)  # latest is D
     assert _check(db, doc, "E") == []   # forward from D
     assert _check(db, doc, "C")         # behind the latest (D) -> blocked
+
+
+# ── Rule 1 under the numbers scheme (001, 002, 003 ...) ────────────────────────
+
+def test_numbers_first_release_any(db):
+    doc = _doc(db, "numbers")
+    assert _check(db, doc, "005") == []          # first release can be any number
+
+
+def test_numbers_skip_forward_allowed(db):
+    doc = _doc(db, "numbers")
+    _release(db, doc, "001")
+    assert _check(db, doc, "003") == []           # skip ahead is fine
+
+
+def test_numbers_duplicate_blocked(db):
+    doc = _doc(db, "numbers")
+    _release(db, doc, "002")
+    assert _check(db, doc, "002")                 # same number -> violation
+
+
+def test_numbers_backward_blocked(db):
+    doc = _doc(db, "numbers")
+    _release(db, doc, "003")
+    assert _check(db, doc, "002")                 # earlier number -> violation
+
+
+def test_scheme_mismatch_rejected(db):
+    assert _check(db, _doc(db, "numbers"), "B")    # a letter under the numbers scheme
+    assert _check(db, _doc(db, "letters"), "001")  # a number under the letters scheme
+
+
+# ── scheme helpers ─────────────────────────────────────────────────────────────
+
+def test_scheme_helpers():
+    from app.protocol.rules import first_revision, next_revision, is_valid_revision
+    assert first_revision("numbers") == "001"
+    assert first_revision("letters") == "A"
+    assert next_revision("numbers", "009") == "010"
+    assert next_revision("letters", "B") == "C"
+    assert is_valid_revision("numbers", "042") and not is_valid_revision("numbers", "4X")

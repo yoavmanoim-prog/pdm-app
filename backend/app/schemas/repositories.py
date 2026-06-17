@@ -23,6 +23,8 @@ class RepositorySettingsUpdate(BaseModel):
     # a sample part number; the format template is derived from it.
     # empty/None clears the configured format.
     part_number_example: str | None = None
+    # revision code scheme for releases: "letters" (A,B,C) or "numbers" (001,002).
+    revision_scheme: str | None = None
 
 
 class RepositoryResponse(BaseModel):
