@@ -77,3 +77,22 @@ def test_missing_detection_uses_repo_template(vaults):
     db.close()
     assert "FW-PT-0001" in found and "AB-CD-9999" in found
     assert "GG-1" not in found
+
+
+def test_revision_scheme_setting(vaults):
+    c = vaults.client
+    rid = c.post("/repos/", json={"name": "scheme-repo"}).json()["id"]
+
+    # default is letters
+    assert c.get(f"/repos/{rid}/settings").json()["revision_scheme"] == "letters"
+
+    # switch to numbers
+    assert c.put(f"/repos/{rid}/settings", json={"revision_scheme": "numbers"}).json()["revision_scheme"] == "numbers"
+    assert c.get(f"/repos/{rid}/settings").json()["revision_scheme"] == "numbers"
+
+    # invalid scheme rejected
+    assert c.put(f"/repos/{rid}/settings", json={"revision_scheme": "roman"}).status_code == 400
+
+    # partial update: setting the part-number format must not reset the scheme
+    c.put(f"/repos/{rid}/settings", json={"part_number_example": "AA-0001"})
+    assert c.get(f"/repos/{rid}/settings").json()["revision_scheme"] == "numbers"

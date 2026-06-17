@@ -224,7 +224,7 @@ function RepositoryInner() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #eee', marginBottom: '20px' }}>
-        {['commits', 'documents', 'branches', 'tree', 'validate', ...(mode === 'remote' ? ['releases'] : ['working dir', 'settings'])].map(t => (
+        {['commits', 'documents', 'branches', 'tree', 'validate', ...(mode === 'remote' ? ['releases', 'settings'] : ['working dir', 'settings'])].map(t => (
           <button key={t} onClick={() => setTab(t)}
             style={{ padding: '8px 18px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: tab === t ? 'bold' : 'normal', borderBottom: tab === t ? '2px solid #1a1a2e' : '2px solid transparent', marginBottom: '-2px' }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -283,7 +283,7 @@ function RepositoryInner() {
       {/* Working Dir tab — local vault only */}
       {tab === 'working dir' && mode === 'local' && <WorkingDirectory repoId={repoId} />}
 
-      {tab === 'settings' && mode === 'local' && <SettingsTab repoId={repoId} />}
+      {tab === 'settings' && <SettingsTab repoId={repoId} mode={mode} />}
 
       {/* Validate tab */}
       {tab === 'validate' && validation && (
@@ -899,21 +899,26 @@ function deriveTemplate(example) {
   ).join('')
 }
 
-function SettingsTab({ repoId }) {
+function SettingsTab({ repoId, mode }) {
   const [example, setExample] = useState('')
   const [savedExample, setSavedExample] = useState(null)
+  const [scheme, setScheme] = useState('letters')
   const [err, setErr] = useState(null)
   const [msg, setMsg] = useState(null)
 
   useEffect(() => {
     getRepoSettings(repoId)
-      .then(s => { setExample(s.part_number_example || ''); setSavedExample(s.part_number_example || null) })
+      .then(s => {
+        setExample(s.part_number_example || '')
+        setSavedExample(s.part_number_example || null)
+        setScheme(s.revision_scheme || 'letters')
+      })
       .catch(() => {})
   }, [repoId])
 
   const template = deriveTemplate(example)
 
-  const save = async (clear = false) => {
+  const savePartNumber = async (clear = false) => {
     setErr(null); setMsg(null)
     try {
       const s = await updateRepoSettings(repoId, { part_number_example: clear ? null : example.trim() })
@@ -923,40 +928,76 @@ function SettingsTab({ repoId }) {
     } catch (e) { setErr(e.message) }
   }
 
+  const saveScheme = async (newScheme) => {
+    setErr(null); setMsg(null)
+    try {
+      const s = await updateRepoSettings(repoId, { revision_scheme: newScheme })
+      setScheme(s.revision_scheme)
+      setMsg(`Revision scheme set to ${s.revision_scheme === 'numbers' ? 'numbers (001, 002, 003)' : 'letters (A, B, C)'}.`)
+    } catch (e) { setErr(e.message) }
+  }
+
+  const schemeBtn = (value, label) => (
+    <button
+      onClick={() => saveScheme(value)}
+      style={{
+        ...btnSmall,
+        background: scheme === value ? '#1a1a2e' : '#e8e8f0',
+        color: scheme === value ? '#fff' : '#444',
+      }}
+    >
+      {label}
+    </button>
+  )
+
   return (
     <div style={{ maxWidth: '560px' }}>
-      <h3 style={{ marginBottom: '4px' }}>Part-number format</h3>
-      <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
-        Enter a <strong>sample part number</strong>. New documents must match its shape, and the
-        auto-BOM uses it to spot referenced parts. Leave empty to allow any format.
-      </p>
-
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' }}>
-        <input
-          value={example}
-          onChange={e => { setExample(e.target.value); setMsg(null) }}
-          placeholder="e.g. FW-PT-0001"
-          style={{ ...inputStyle, flex: 1 }}
-        />
-        <button onClick={() => save(false)} style={btnSmall} disabled={!example.trim()}>Save</button>
-        {savedExample && (
-          <button onClick={() => save(true)} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>Clear</button>
-        )}
-      </div>
-
-      {example.trim() && (
-        <div style={{ fontSize: '13px', color: '#444', marginTop: '8px' }}>
-          Template: <code style={{ background: '#f0f0f0', padding: '2px 8px', borderRadius: '4px' }}>{template}</code>
-          <span style={{ color: '#888', marginLeft: '8px', fontSize: '12px' }}>(A = letter, # = digit)</span>
-        </div>
+      {/* Part-number format — set on the local vault (governs document creation) */}
+      {mode === 'local' && (
+        <>
+          <h3 style={{ marginBottom: '4px' }}>Part-number format</h3>
+          <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
+            Enter a <strong>sample part number</strong>. New documents must match its shape, and the
+            auto-BOM uses it to spot referenced parts. Leave empty to allow any format.
+          </p>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' }}>
+            <input
+              value={example}
+              onChange={e => { setExample(e.target.value); setMsg(null) }}
+              placeholder="e.g. FW-PT-0001"
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <button onClick={() => savePartNumber(false)} style={btnSmall} disabled={!example.trim()}>Save</button>
+            {savedExample && (
+              <button onClick={() => savePartNumber(true)} style={{ ...btnSmall, background: '#e8e8f0', color: '#444' }}>Clear</button>
+            )}
+          </div>
+          {example.trim() && (
+            <div style={{ fontSize: '13px', color: '#444', marginTop: '8px' }}>
+              Template: <code style={{ background: '#f0f0f0', padding: '2px 8px', borderRadius: '4px' }}>{template}</code>
+              <span style={{ color: '#888', marginLeft: '8px', fontSize: '12px' }}>(A = letter, # = digit)</span>
+            </div>
+          )}
+        </>
       )}
-      {savedExample && (
-        <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>
-          Current format: sample <code>{savedExample}</code>
-        </div>
+
+      {/* Revision scheme — set on the remote vault (governs releases) */}
+      {mode === 'remote' && (
+        <>
+          <h3 style={{ marginBottom: '4px' }}>Revision scheme</h3>
+          <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
+            The code used when publishing revisions on this vault. Releases must move forward in
+            whichever scheme you pick (skips allowed; no duplicates or going backward).
+          </p>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            {schemeBtn('letters', 'Letters — A, B, C')}
+            {schemeBtn('numbers', 'Numbers — 001, 002, 003')}
+          </div>
+        </>
       )}
-      {msg && <div style={{ fontSize: '13px', color: 'green', marginTop: '8px' }}>{msg}</div>}
-      {err && <div style={{ fontSize: '13px', color: '#c0392b', marginTop: '8px' }}>{err}</div>}
+
+      {msg && <div style={{ fontSize: '13px', color: 'green', marginTop: '12px' }}>{msg}</div>}
+      {err && <div style={{ fontSize: '13px', color: '#c0392b', marginTop: '12px' }}>{err}</div>}
     </div>
   )
 }

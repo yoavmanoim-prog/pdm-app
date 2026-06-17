@@ -20,7 +20,12 @@ DEFAULT_SETTINGS = {
     # None = no format configured: no part-number validation, and the auto-BOM
     # missing-detection uses its built-in pattern (legacy behaviour).
     "part_number_example": None,
+    # revision code scheme used by the revision-sequence release rule:
+    # "letters" -> A, B, C ...   "numbers" -> 001, 002, 003 ...
+    "revision_scheme": "letters",
 }
+
+REVISION_SCHEMES = ("letters", "numbers")
 
 
 def effective_settings(repo) -> dict:

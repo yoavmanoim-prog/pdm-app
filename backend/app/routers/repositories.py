@@ -15,7 +15,7 @@ from app.schemas.repositories import (
     RepositoryCreate, RepositoryUpdate, RepositoryResponse, RepositoryListResponse,
     RepositorySettingsUpdate,
 )
-from app.settings_config import effective_settings, validate_example, mask_from_example
+from app.settings_config import effective_settings, validate_example, mask_from_example, REVISION_SCHEMES
 from app.vault_client import VaultClient
 from app import storage
 
@@ -23,10 +23,12 @@ from app import storage
 def _settings_response(repo) -> dict:
     """Per-repo settings shaped for the UI: the sample part number plus the
     template derived from it."""
-    example = effective_settings(repo)["part_number_example"]
+    eff = effective_settings(repo)
+    example = eff["part_number_example"]
     return {
         "part_number_example": example,
         "part_number_template": mask_from_example(example) if example else None,
+        "revision_scheme": eff["revision_scheme"],
     }
 
 
@@ -181,14 +183,23 @@ def update_repository_settings(
         raise HTTPException(status_code=404, detail="Repository not found")
 
     current = dict(repo.settings or {})
-    example = (body.part_number_example or "").strip()
-    if example:
-        err = validate_example(example)
-        if err:
-            raise HTTPException(status_code=400, detail=err)
-        current["part_number_example"] = example
-    else:
-        current.pop("part_number_example", None)  # empty clears the format
+    provided = body.model_fields_set  # only touch the fields the caller actually sent
+
+    if "part_number_example" in provided:
+        example = (body.part_number_example or "").strip()
+        if example:
+            err = validate_example(example)
+            if err:
+                raise HTTPException(status_code=400, detail=err)
+            current["part_number_example"] = example
+        else:
+            current.pop("part_number_example", None)  # empty clears the format
+
+    if "revision_scheme" in provided:
+        scheme = body.revision_scheme
+        if scheme not in REVISION_SCHEMES:
+            raise HTTPException(status_code=400, detail=f"revision_scheme must be one of {REVISION_SCHEMES}")
+        current["revision_scheme"] = scheme
 
     repo.settings = current or None  # reassign so SQLAlchemy persists the JSON
     db.commit()

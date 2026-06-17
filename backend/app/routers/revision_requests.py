@@ -12,7 +12,9 @@ from app.models.revision import Revision
 from app.models.revision_request import RevisionRequest
 from app.models.audit import AuditEvent
 from app.protocol.engine import run_publish_checks
-from app.protocol.rules import REVISION_SEQUENCE
+from app.protocol.rules import first_revision, next_revision
+from app.models.repository import Repository
+from app.settings_config import effective_settings
 
 router = APIRouter(prefix="/repos", tags=["revision-requests"])
 
@@ -23,7 +25,12 @@ def _require_remote():
 
 
 def _next_revision_code(document_id: uuid.UUID, db: Session) -> str:
-    """Return the next revision code for a document (A if none, else next in sequence)."""
+    """Next revision code for a document, in the repo's scheme (letters or
+    numbers): first release if none, else the next value in sequence."""
+    doc = db.get(Document, document_id)
+    repo = db.get(Repository, doc.repository_id) if doc else None
+    scheme = effective_settings(repo)["revision_scheme"]
+
     latest = (
         db.query(Revision)
         .filter(Revision.document_id == document_id)
@@ -31,14 +38,11 @@ def _next_revision_code(document_id: uuid.UUID, db: Session) -> str:
         .first()
     )
     if not latest:
-        return REVISION_SEQUENCE[0]
-    try:
-        idx = REVISION_SEQUENCE.index(latest.revision_code.upper())
-        if idx + 1 >= len(REVISION_SEQUENCE):
-            raise HTTPException(status_code=400, detail="Document has reached the last revision code")
-        return REVISION_SEQUENCE[idx + 1]
-    except ValueError:
-        return REVISION_SEQUENCE[0]
+        return first_revision(scheme)
+    nxt = next_revision(scheme, latest.revision_code)
+    if nxt is None:
+        raise HTTPException(status_code=400, detail="Document has reached the last revision code")
+    return nxt
 
 
 class ReleaseRequestCreate(BaseModel):
