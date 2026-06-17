@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, Text
+from sqlalchemy import String, DateTime, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
@@ -19,6 +19,9 @@ class Repository(Base):
     remote_repo_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     # local folder this repo tracks — set once at creation, like git init <dir>
     watch_path: Mapped[str | None] = mapped_column(String(1000))
+    # per-repo configurable settings (JSON), e.g. {"part_number_mask": "AA-AA-####"}.
+    # NULL/missing keys fall back to code defaults — see app.settings_config.
+    settings: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="repository")

@@ -40,6 +40,9 @@ export const linkRepo = (id, remoteUrl, remoteRepoId = null) =>
 // list repos on a remote vault so the user can pick which one to link to
 export const listRemoteRepos = remoteUrl =>
   req('GET', `/sync/remote-repos?remote_url=${encodeURIComponent(remoteUrl)}`)
+// per-repo settings (e.g. part-number format derived from a sample)
+export const getRepoSettings = id => req('GET', `/repos/${id}/settings`)
+export const updateRepoSettings = (id, body) => req('PUT', `/repos/${id}/settings`, body)
 
 // Documents
 export const listDocuments = repoId => req('GET', `/repos/${repoId}/documents/`)

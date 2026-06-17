@@ -11,12 +11,27 @@ from app import storage
 from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.document import Document
+from app.models.repository import Repository
+from app.settings_config import effective_settings, example_to_pattern
 
 logger = logging.getLogger(__name__)
 
-# Used only for detecting MISSING parts (not for BOM creation).
-# BOM creation uses direct substring search so any naming convention works.
+# Default pattern for detecting MISSING parts (not for BOM creation), used when a
+# repo hasn't configured its own part-number format. BOM creation uses direct
+# substring search so any naming convention works.
 PART_NUMBER_RE = re.compile(r'\b[A-Z]{2,6}-[A-Z]{2,6}-\d{3,8}\b')
+
+
+def _missing_detection_re(repo_id: uuid.UUID, db: Session) -> "re.Pattern":
+    """The pattern used to spot part-number-shaped tokens in a drawing. Uses the
+    repo's configured format (from its sample part number) if set, else the
+    built-in default."""
+    repo = db.get(Repository, repo_id)
+    example = effective_settings(repo)["part_number_example"]
+    if example:
+        return re.compile(r'\b' + example_to_pattern(example) + r'\b', re.IGNORECASE)
+    return PART_NUMBER_RE
+
 
 # If the text layer has fewer characters than this, the PDF is likely
 # image-based and we fall back to OCR.
@@ -141,7 +156,7 @@ def auto_link_sons(pdf_bytes: bytes, repo_id: uuid.UUID, doc_id: uuid.UUID, db: 
     for d in [*repo_docs, doc]:
         known.add(d.part_number.upper())
         known.add(d.part_number.split(' -')[0].strip().upper())
-    regex_found = {m.group() for m in PART_NUMBER_RE.finditer(text_upper)}
+    regex_found = {m.group().upper() for m in _missing_detection_re(repo_id, db).finditer(text_upper)}
     missing = sorted(regex_found - known)
 
     if missing:
