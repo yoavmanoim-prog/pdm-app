@@ -18,6 +18,7 @@ which is where the diff_report_patches field-drop bug lived. A push or pull that
 NameErrors or drops a payload field fails these tests.
 """
 import contextlib
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -30,6 +31,8 @@ from app import config
 from app.database import get_db
 from app.main import app
 from app.models import Base
+from app.models.user import User, ROLE_ADMIN
+from app.security import get_current_user
 from app.vault_client import RemoteRepoNotFoundError, VaultClient
 
 
@@ -59,6 +62,13 @@ def vaults(monkeypatch):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    # Every data endpoint now requires a logged-in user. These e2e tests predate
+    # auth and exercise the sync/data paths, not the login path, so we bypass the
+    # real token check with a fake admin (admin == superset of member access).
+    # The dedicated auth tests (test_auth.py) run the real security path instead.
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=uuid.uuid4(), email="test@local", role=ROLE_ADMIN, is_active=True,
+    )
     client = TestClient(app)
 
     @contextlib.contextmanager

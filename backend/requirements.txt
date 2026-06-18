@@ -26,3 +26,7 @@ pydantic-settings==2.2.1  # reads config from environment variables and .env fil
 
 # Prometheus — exposes /metrics so Prometheus can scrape request rate, latency, error rate
 prometheus-fastapi-instrumentator==6.1.0  # 8.x pulls starlette 1.x which breaks fastapi 0.111
+
+# auth — password hashing (bcrypt) and signed login tokens (JWT)
+bcrypt==4.2.1   # one-way password hashing; we never store plaintext passwords
+PyJWT==2.10.1   # creates/verifies the signed JWT "wristband" returned at login
