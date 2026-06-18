@@ -36,7 +36,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 720  # 12 hours — a factory work shift
 
     # optional one-time admin bootstrap: if set and no admin exists yet, an admin
-    # account with these credentials is created at startup. Leave blank to skip.
+    # account with these credentials is created at startup. Blank by default so no
+    # admin credentials live in source — set these via env/secret (locally via a
+    # gitignored backend/.env; see backend/.env.example).
     BOOTSTRAP_ADMIN_EMAIL: str = ""
     BOOTSTRAP_ADMIN_PASSWORD: str = ""
 
