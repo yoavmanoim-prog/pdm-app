@@ -13,6 +13,7 @@ import app.models.bom         # noqa: F401
 import app.models.revision          # noqa: F401
 import app.models.audit             # noqa: F401
 import app.models.revision_request  # noqa: F401
+import app.models.user              # noqa: F401
 
 config = context.config
 

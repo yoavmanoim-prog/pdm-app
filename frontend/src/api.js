@@ -14,8 +14,19 @@ function getBase() {
 // regardless of which vault mode the UI is in.
 const LOCAL_BASE = 'http://localhost:8000'
 
+// where the login token lives. The backend stamps every request's identity from
+// the JWT in the Authorization header, so we attach it to every call below.
+const TOKEN_KEY = 'authToken'
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = t => t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY)
+
+function authHeaders() {
+  const t = getToken()
+  return t ? { Authorization: `Bearer ${t}` } : {}
+}
+
 async function req(method, path, body) {
-  const opts = { method, headers: {} }
+  const opts = { method, headers: { ...authHeaders() } }
   if (body && !(body instanceof FormData)) {
     opts.headers['Content-Type'] = 'application/json'
     opts.body = JSON.stringify(body)
@@ -24,11 +35,26 @@ async function req(method, path, body) {
   }
   const res = await fetch(`${getBase()}${path}`, opts)
   if (!res.ok) {
+    // 401 anywhere except the login/signup calls themselves means our token is
+    // missing or expired — drop it and bounce to the login screen.
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      setToken(null)
+      if (window.location.pathname !== '/login') window.location.assign('/login')
+    }
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail))
   }
   return res.status === 204 ? null : res.json()
 }
+
+// Auth + users
+export const signup = body => req('POST', '/auth/signup', body)
+export const login = body => req('POST', '/auth/login', body)
+export const getMe = () => req('GET', '/auth/me')
+export const listUsers = () => req('GET', '/users')
+export const createUser = body => req('POST', '/users', body)
+export const updateUser = (id, body) => req('PATCH', `/users/${id}`, body)
+export const deleteUser = id => req('DELETE', `/users/${id}`)
 
 // Repositories
 export const listRepos = () => req('GET', '/repos/')
