@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app import remote_auth
+from app.config import settings
 from app.database import get_db
 from app.models.user import User, ROLE_MEMBER
 from app.schemas.users import UserSignup, UserLogin, UserResponse, TokenResponse
@@ -8,6 +10,12 @@ from app.security import hash_password, verify_password, create_access_token, ge
 
 # all routes here are prefixed with /auth
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _is_authority() -> bool:
+    """True on the remote vault, which owns the user table. A local vault returns
+    False and forwards account operations to the remote (one shared user store)."""
+    return settings.VAULT_MODE == "remote"
 
 
 def _issue_token(user: User) -> TokenResponse:
@@ -20,6 +28,10 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
     """Public self-registration. New accounts are always plain 'member' role —
     only an existing admin can grant the admin role afterwards. On success we log
     the user straight in by returning a token, so they don't re-type credentials."""
+    if not _is_authority():
+        # local vault: create the account in the shared (remote) user store
+        return remote_auth.remote_request("POST", "/auth/signup", json=body.model_dump())
+
     exists = db.query(User).filter(User.email == body.email).first()
     if exists:
         # 409 Conflict — the email is already taken
@@ -43,6 +55,10 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
     """Exchange email + password for a token. We return the SAME 401 whether the
     email is unknown or the password is wrong — revealing which one leaks whether
     an account exists."""
+    if not _is_authority():
+        # local vault: authenticate against the shared (remote) user store
+        return remote_auth.remote_request("POST", "/auth/login", json=body.model_dump())
+
     user = db.query(User).filter(User.email == body.email).first()
     if user is None or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")

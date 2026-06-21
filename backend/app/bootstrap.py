@@ -19,6 +19,11 @@ log = logging.getLogger("uvicorn.error")
 
 
 def ensure_bootstrap_admin() -> None:
+    # only the authoritative (remote) vault owns user accounts — a local vault
+    # delegates auth to the remote, so seeding a local admin would be a dead row.
+    if settings.VAULT_MODE != "remote":
+        return
+
     email = settings.BOOTSTRAP_ADMIN_EMAIL.strip().lower()
     password = settings.BOOTSTRAP_ADMIN_PASSWORD
     if not email or not password:
