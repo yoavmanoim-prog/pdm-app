@@ -2,12 +2,15 @@
 (password hashing, JWT signing/verifying, role gating), unlike the e2e tests
 which bypass auth with a fake user.
 """
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import config
 from app.database import get_db
 from app.main import app
 from app.models import Base
@@ -16,9 +19,12 @@ from app.security import hash_password
 
 
 @pytest.fixture
-def client():
-    """A TestClient backed by a fresh in-memory DB. Only get_db is overridden,
-    so the real get_current_user/JWT logic runs — this is the whole point."""
+def client(monkeypatch):
+    """A TestClient backed by a fresh in-memory DB, running as the REMOTE vault —
+    the authoritative user store. Only get_db is overridden, so the real
+    get_current_user / JWT / token_version logic runs against the DB (a local
+    vault would instead delegate to a remote, tested separately below)."""
+    monkeypatch.setattr(config.settings, "VAULT_MODE", "remote")
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     sm = sessionmaker(bind=engine, expire_on_commit=False)
@@ -110,7 +116,8 @@ def test_protected_endpoint_requires_token(client):
 
 def test_protected_endpoint_with_valid_token(client):
     _seed_user(client.sm, "eng@factory.com", "correcthorse")
-    token = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()["access_token"]
+    token = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()[
+        "access_token"]
     r = client.get("/repos/", headers=_auth(token))
     assert r.status_code == 200
 
@@ -121,7 +128,8 @@ def test_garbage_token_is_401(client):
 
 def test_me_returns_current_user(client):
     _seed_user(client.sm, "eng@factory.com", "correcthorse")
-    token = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()["access_token"]
+    token = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()[
+        "access_token"]
     r = client.get("/auth/me", headers=_auth(token))
     assert r.status_code == 200
     assert r.json()["email"] == "eng@factory.com"
@@ -131,12 +139,14 @@ def test_me_returns_current_user(client):
 
 def _admin_token(client):
     _seed_user(client.sm, "boss@factory.com", "adminpass123", role=ROLE_ADMIN)
-    return client.post("/auth/login", json={"email": "boss@factory.com", "password": "adminpass123"}).json()["access_token"]
+    r = client.post("/auth/login", json={"email": "boss@factory.com", "password": "adminpass123"})
+    return r.json()["access_token"]
 
 
 def test_member_cannot_list_users(client):
     _seed_user(client.sm, "eng@factory.com", "correcthorse")
-    token = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()["access_token"]
+    token = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()[
+        "access_token"]
     assert client.get("/users", headers=_auth(token)).status_code == 403
 
 
@@ -163,3 +173,101 @@ def test_cannot_remove_last_admin(client):
     me = client.get("/auth/me", headers=_auth(token)).json()
     r = client.patch(f"/users/{me['id']}", headers=_auth(token), json={"is_active": False})
     assert r.status_code == 400
+
+
+# ── token reset on permission change (token_version) ──────────────────────────
+
+def test_role_change_invalidates_existing_token(client):
+    """The heart of 'log out on role change': after an admin edits a user's role,
+    that user's already-issued token must stop working (forces re-login)."""
+    admin = _admin_token(client)
+    target = _seed_user(client.sm, "eng@factory.com", "correcthorse")
+    user_token = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()[
+        "access_token"]
+
+    # token works before the change
+    assert client.get("/auth/me", headers=_auth(user_token)).status_code == 200
+
+    # admin promotes them -> token_version bumps -> old token is now stale
+    assert client.patch(f"/users/{target.id}", headers=_auth(admin), json={"role": "admin"}).status_code == 200
+    assert client.get("/auth/me", headers=_auth(user_token)).status_code == 401
+
+    # logging in again issues a token at the new version, which works
+    fresh = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()[
+        "access_token"]
+    assert client.get("/auth/me", headers=_auth(fresh)).status_code == 200
+
+
+def test_deactivation_invalidates_existing_token(client):
+    admin = _admin_token(client)
+    target = _seed_user(client.sm, "eng@factory.com", "correcthorse")
+    user_token = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()[
+        "access_token"]
+    assert client.get("/repos/", headers=_auth(user_token)).status_code == 200
+    client.patch(f"/users/{target.id}", headers=_auth(admin), json={"is_active": False})
+    assert client.get("/repos/", headers=_auth(user_token)).status_code == 401
+
+
+# ── local vault delegates auth to the remote ──────────────────────────────────
+
+@pytest.fixture
+def local_client(monkeypatch):
+    """A TestClient running as a LOCAL vault: it owns no users and delegates auth
+    to the remote. get_db is still overridden with an empty DB because FastAPI
+    resolves the get_db dependency even on endpoints that return early."""
+    monkeypatch.setattr(config.settings, "VAULT_MODE", "local")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    sm = sessionmaker(bind=engine, expire_on_commit=False)
+
+    def override_get_db():
+        db = sm()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_local_vault_delegates_validation_to_remote(local_client, monkeypatch):
+    """In local mode the vault owns no users — get_current_user must resolve the
+    token by calling the remote vault (app.remote_auth.validate_token)."""
+    fake_user = {
+        "id": str(uuid.uuid4()), "email": "eng@factory.com", "full_name": None,
+        "role": "member", "is_active": True, "created_at": "2026-06-21T00:00:00",
+    }
+    calls = {"n": 0}
+
+    def fake_validate(token):
+        calls["n"] += 1
+        if token == "good":
+            return fake_user
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="bad token")
+
+    monkeypatch.setattr("app.remote_auth.validate_token", fake_validate)
+    assert local_client.get("/repos/", headers=_auth("good")).status_code == 200
+    assert local_client.get("/repos/", headers=_auth("nope")).status_code == 401
+    assert calls["n"] >= 2  # the local vault really did delegate
+
+
+def test_local_vault_proxies_login_to_remote(local_client, monkeypatch):
+    captured = {}
+
+    def fake_remote_request(method, path, token=None, json=None):
+        captured["call"] = (method, path)
+        return {"access_token": "remote-token", "token_type": "bearer", "user": {
+            "id": str(uuid.uuid4()), "email": json["email"], "full_name": None,
+            "role": "member", "is_active": True, "created_at": "2026-06-21T00:00:00",
+        }}
+
+    monkeypatch.setattr("app.remote_auth.remote_request", fake_remote_request)
+    r = local_client.post("/auth/login", json={"email": "eng@factory.com", "password": "whatever12"})
+    assert r.status_code == 200
+    assert r.json()["access_token"] == "remote-token"
+    assert captured["call"] == ("POST", "/auth/login")
