@@ -9,8 +9,11 @@ services:
     environment:
       DATABASE_URL: postgresql://pdm:pdm@local-db:5432/pdm
       VAULT_MODE: local
-      # Push/Pull go to the real remote vault running on AWS (EKS)
-      REMOTE_VAULT_URL: https://d3df2y18th5fg7.cloudfront.net/api
+      # Push/Pull AND auth delegation target the local remote-vault below, so the
+      # whole local<->remote flow (incl. shared users) works offline. Point this
+      # back at the AWS vault (https://d3df2y18th5fg7.cloudfront.net/api) to use
+      # the real remote instead.
+      REMOTE_VAULT_URL: http://remote-vault:8000
       S3_BUCKET: "pdm-docs-production"
       AWS_REGION: us-east-1
       WATCH_BASE: /watch
@@ -18,10 +21,34 @@ services:
     depends_on:
       local-db:
         condition: service_healthy
+      remote-vault:
+        condition: service_started
     volumes:
       - ./backend:/app
       - ~/.aws:/root/.aws:ro
       - ${HOME}:/watch:ro
+
+  # ── Remote Vault ────────────────────────────────────────────────────────────
+  # Local stand-in for the shared AWS vault. It owns the single user table, so
+  # the local vault delegates login/signup/user-management here (shared users).
+  # Runs DB migrations on start, then seeds the admin from backend/.env.
+  remote-vault:
+    build: ./backend
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql://pdm:pdm@remote-db:5432/pdm
+      VAULT_MODE: remote
+      S3_BUCKET: "pdm-docs-production"
+      AWS_REGION: us-east-1
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
+    depends_on:
+      remote-db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ~/.aws:/root/.aws:ro
 
   # ── Frontend ────────────────────────────────────────────────────────────────
   # React dev server — open http://localhost:5173
@@ -56,6 +83,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Remote Database ──────────────────────────────────────────────────────────
+  # Backs the remote-vault — holds the shared user table (and remote-side repos).
+  remote-db:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: pdm
+      POSTGRES_USER: pdm
+      POSTGRES_PASSWORD: pdm
+    volumes:
+      - remote-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   local-db-data:
+  remote-db-data:
   frontend_node_modules:
