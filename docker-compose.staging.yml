@@ -1,0 +1,76 @@
+# Dev-against-STAGING. Runs your LOCAL vault on your machine but points it at the
+# real AWS staging vault for auth (shared users) and push/pull sync — so you work
+# locally with your staging account against staging data.
+#
+#   docker compose -f docker-compose.staging.yml up
+#
+# The default docker-compose.yml is the fully-local dev env (it spins up its own
+# remote-vault). This file has NO local remote-vault: the remote IS AWS staging.
+#
+# Note: staging currently serves the nginx default "Fake Certificate", so HTTPS
+# fails TLS verification — we target it over http until staging gets a real cert
+# (cert-manager). A separate project name keeps this isolated from the dev stack;
+# don't run both at once (they share host ports 8000/5173/5432).
+name: pdm-stage
+
+services:
+
+  # ── Local Vault (your workstation) ──────────────────────────────────────────
+  local-vault:
+    build: ./backend
+    # migrate the local DB on start, then serve — so `up` just works
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://pdm:pdm@local-db:5432/pdm
+      VAULT_MODE: local
+      # auth delegation + push/pull target AWS STAGING (http — see note above)
+      REMOTE_VAULT_URL: http://staging.52.202.248.204.nip.io/api
+      S3_BUCKET: "pdm-docs-production"
+      AWS_REGION: us-east-1
+      WATCH_BASE: /watch
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
+    depends_on:
+      local-db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ~/.aws:/root/.aws:ro
+      - ${HOME}:/watch:ro
+
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      LOCAL_VAULT_URL: http://local-vault:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - local-vault
+
+  # ── Local Database (this workstation's own vault DB) ────────────────────────
+  local-db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: pdm
+      POSTGRES_USER: pdm
+      POSTGRES_PASSWORD: pdm
+    volumes:
+      - stage-local-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  stage-local-db-data:
+  frontend_node_modules:
