@@ -10,6 +10,16 @@ function getBase() {
   return remote ? `${remote}/api` : '/api'
 }
 
+// Auth + user management always resolve against the REMOTE user store, NOT the
+// Local/Remote data toggle. On the deployed site this is the remote vault itself
+// (same-origin /api). On a local workstation it goes through the local vault on
+// :8000, which forwards auth to whatever REMOTE_VAULT_URL points at — so login
+// always hits the one shared user store regardless of which vault you're browsing.
+function authBase() {
+  if (window.location.hostname !== 'localhost') return '/api'
+  return 'http://localhost:8000'
+}
+
 // Watch/browse always talks to the local vault — it reads the local filesystem
 // regardless of which vault mode the UI is in.
 const LOCAL_BASE = 'http://localhost:8000'
@@ -25,7 +35,7 @@ function authHeaders() {
   return t ? { Authorization: `Bearer ${t}` } : {}
 }
 
-async function req(method, path, body) {
+async function req(method, path, body, base = getBase()) {
   const opts = { method, headers: { ...authHeaders() } }
   if (body && !(body instanceof FormData)) {
     opts.headers['Content-Type'] = 'application/json'
@@ -33,7 +43,7 @@ async function req(method, path, body) {
   } else if (body) {
     opts.body = body  // FormData — browser sets Content-Type automatically
   }
-  const res = await fetch(`${getBase()}${path}`, opts)
+  const res = await fetch(`${base}${path}`, opts)
   if (!res.ok) {
     // 401 anywhere except the login/signup calls themselves means our token is
     // missing or expired — drop it and bounce to the login screen.
@@ -47,14 +57,16 @@ async function req(method, path, body) {
   return res.status === 204 ? null : res.json()
 }
 
-// Auth + users
-export const signup = body => req('POST', '/auth/signup', body)
-export const login = body => req('POST', '/auth/login', body)
-export const getMe = () => req('GET', '/auth/me')
-export const listUsers = () => req('GET', '/users')
-export const createUser = body => req('POST', '/users', body)
-export const updateUser = (id, body) => req('PATCH', `/users/${id}`, body)
-export const deleteUser = id => req('DELETE', `/users/${id}`)
+// Auth + users always go to the shared user store (authBase), independent of the
+// data-vault toggle — so the login page works no matter which vault is selected.
+const authReq = (method, path, body) => req(method, path, body, authBase())
+export const signup = body => authReq('POST', '/auth/signup', body)
+export const login = body => authReq('POST', '/auth/login', body)
+export const getMe = () => authReq('GET', '/auth/me')
+export const listUsers = () => authReq('GET', '/users')
+export const createUser = body => authReq('POST', '/users', body)
+export const updateUser = (id, body) => authReq('PATCH', `/users/${id}`, body)
+export const deleteUser = id => authReq('DELETE', `/users/${id}`)
 
 // Repositories
 export const listRepos = () => req('GET', '/repos/')

@@ -58,6 +58,24 @@ spec:
               value: {{ .Values.vaultMode }}
             - name: CORS_ORIGINS
               value: {{ .Values.corsOrigins | quote }}
+            {{- if .Values.auth.jwtSecretEnabled }}
+            # signing key for login tokens — sourced from pdm-backend-secret
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: pdm-backend-secret
+                  key: jwt-secret
+            {{- end }}
+            {{- if .Values.auth.bootstrapAdminEmail }}
+            # seed the first admin on startup (remote vault only, idempotent)
+            - name: BOOTSTRAP_ADMIN_EMAIL
+              value: {{ .Values.auth.bootstrapAdminEmail | quote }}
+            - name: BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pdm-backend-secret
+                  key: bootstrap-admin-password
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health
