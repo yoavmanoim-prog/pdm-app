@@ -10,6 +10,7 @@ import DocumentViewer from './pages/DocumentViewer'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Admin from './pages/Admin'
+import Roles from './pages/Roles'
 
 // Gate for any page that needs a logged-in user. While the session is still
 // being restored from a saved token we render nothing decisive (no redirect),
@@ -22,23 +23,24 @@ function RequireAuth({ children }) {
   return children
 }
 
-// Admin-only gate. A logged-in member gets bounced to the dashboard; the backend
-// also enforces this, so the guard is convenience, not the security boundary.
-function RequireAdmin({ children }) {
-  const { user, loading } = useAuth()
+// Privilege gate. A logged-in user lacking the privilege gets bounced to the
+// dashboard; the backend also enforces it, so this is convenience, not security.
+function RequirePrivilege({ privilege, children }) {
+  const { user, loading, can } = useAuth()
   if (loading) return <p>Loading…</p>
   if (!user) return <Navigate to="/login" replace />
-  if (user.role !== 'admin') return <Navigate to="/" replace />
+  if (!can(privilege)) return <Navigate to="/" replace />
   return children
 }
 
 function UserMenu() {
-  const { user, logout, isAdmin } = useAuth()
+  const { user, logout, can } = useAuth()
   const navigate = useNavigate()
   if (!user) return null
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-      {isAdmin && <Link to="/admin" style={{ fontSize: 13, color: '#1a1a2e' }}>Users</Link>}
+      {can('manage_users') && <Link to="/admin" style={{ fontSize: 13, color: '#1a1a2e' }}>Users</Link>}
+      {can('manage_roles') && <Link to="/roles" style={{ fontSize: 13, color: '#1a1a2e' }}>Roles</Link>}
       <span style={{ fontSize: 13, color: '#666' }}>{user.email}</span>
       <button
         onClick={() => { logout(); navigate('/login') }}
@@ -64,8 +66,9 @@ function AppContent() {
       <Route path="/repos/:repoId/branches/:branchId" element={<RequireAuth><BranchView /></RequireAuth>} />
       <Route path="/repos/:repoId/documents/:docId" element={<RequireAuth><DocumentViewer /></RequireAuth>} />
 
-      {/* admin-only */}
-      <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
+      {/* admin-only (privilege-gated) */}
+      <Route path="/admin" element={<RequirePrivilege privilege="manage_users"><Admin /></RequirePrivilege>} />
+      <Route path="/roles" element={<RequirePrivilege privilege="manage_roles"><Roles /></RequirePrivilege>} />
     </Routes>
   )
 }

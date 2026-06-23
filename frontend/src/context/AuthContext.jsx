@@ -41,7 +41,15 @@ export function AuthProvider({ children }) {
     setUser(null)
   }
 
-  const value = { user, loading, login, signup, logout, isAdmin: user?.role === 'admin' }
+  // privilege check — drives which actions/links the UI shows. The backend
+  // re-checks every privilege, so this is convenience, not the security boundary.
+  const can = priv => (user?.privileges || []).includes(priv)
+
+  const value = {
+    user, loading, login, signup, logout, can,
+    privileges: user?.privileges || [],
+    isAdmin: can('manage_users'),
+  }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

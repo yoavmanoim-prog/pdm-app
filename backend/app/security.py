@@ -75,7 +75,7 @@ def _user_from_remote(data: dict) -> User:
     response. Carries just enough for require_admin and the response model; it is
     never added to a session."""
     created = data.get("created_at")
-    return User(
+    user = User(
         id=uuid.UUID(data["id"]),
         email=data["email"],
         full_name=data.get("full_name"),
@@ -83,6 +83,10 @@ def _user_from_remote(data: dict) -> User:
         is_active=data["is_active"],
         created_at=datetime.fromisoformat(created) if isinstance(created, str) else created,
     )
+    # the local vault has no Role rows to join — carry the privileges the remote
+    # already resolved, so require_privilege works the same on both vaults.
+    user.privileges = data.get("privileges", [])
+    return user
 
 
 def get_current_user(

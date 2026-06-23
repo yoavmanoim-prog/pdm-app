@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { listUsers, createUser, updateUser, deleteUser } from '../api'
+import { Link } from 'react-router-dom'
+import { listUsers, createUser, updateUser, deleteUser, listRoles } from '../api'
 import { useAuth } from '../context/AuthContext'
 
 // Admin console: list every account and change roles / active state. This is the
@@ -8,8 +9,9 @@ import { useAuth } from '../context/AuthContext'
 // backend re-checks the role too, so this page can't be reached or abused by a
 // member even if they hand-craft the URL.
 export default function Admin() {
-  const { user: me } = useAuth()
+  const { user: me, can } = useAuth()
   const [users, setUsers] = useState([])
+  const [roles, setRoles] = useState([])
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ email: '', password: '', full_name: '', role: 'member' })
@@ -18,7 +20,8 @@ export default function Admin() {
     setLoading(true)
     listUsers().then(setUsers).catch(e => setError(e.message)).finally(() => setLoading(false))
   }
-  useEffect(refresh, [])
+  // roles populate the assignment dropdowns; loaded once
+  useEffect(() => { refresh(); listRoles().then(setRoles).catch(() => {}) }, [])
 
   async function handleCreate(e) {
     e.preventDefault()
@@ -43,9 +46,14 @@ export default function Admin() {
   if (loading) return <p>Loading users…</p>
   if (error) return <p style={{ color: 'red' }}>Error: {error}</p>
 
+  const roleOptions = (roles.length ? roles.map(r => r.name) : ['member', 'admin'])
+
   return (
     <div>
-      <h2>User management</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h2>User management</h2>
+        {can('manage_roles') && <Link to="/roles" style={{ fontSize: 14 }}>Manage roles →</Link>}
+      </div>
 
       <form onSubmit={handleCreate} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', background: '#f5f5f5', padding: 12, borderRadius: 6, marginBottom: 20 }}>
         <input required type="email" placeholder="Email" value={form.email}
@@ -55,8 +63,7 @@ export default function Admin() {
         <input placeholder="Full name" value={form.full_name}
           onChange={e => setForm({ ...form, full_name: e.target.value })} style={input} />
         <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} style={input}>
-          <option value="member">member</option>
-          <option value="admin">admin</option>
+          {roleOptions.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
         <button type="submit" style={btn}>+ Add user</button>
       </form>
@@ -75,8 +82,7 @@ export default function Admin() {
               <td style={td}>{u.full_name || '—'}</td>
               <td style={td}>
                 <select value={u.role} onChange={e => changeRole(u, e.target.value)} style={input}>
-                  <option value="member">member</option>
-                  <option value="admin">admin</option>
+                  {roleOptions.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </td>
               <td style={td}>{u.is_active

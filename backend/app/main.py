@@ -9,7 +9,7 @@ from app.bootstrap import ensure_bootstrap_admin
 from app.routers import (
     repositories, documents, commits, branches, tree,
     sync, vault_incoming, revisions, revision_requests, audit, watch,
-    auth, users,
+    auth, users, roles,
 )
 
 # every endpoint behind this gate requires a valid login token. Declared once so
@@ -65,7 +65,8 @@ app.include_router(watch.router)
 
 # --- protected routers (valid login token required) ---
 # every user-facing data endpoint passes through get_current_user via _auth.
-app.include_router(users.router)                       # admin-only (guarded inside the router too)
+app.include_router(users.router)                       # manage_users (guarded inside the router)
+app.include_router(roles.router)                       # manage_roles (guarded inside the router)
 app.include_router(repositories.router, dependencies=_auth)
 app.include_router(documents.router, dependencies=_auth)
 app.include_router(commits.router, dependencies=_auth)

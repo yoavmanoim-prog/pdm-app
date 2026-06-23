@@ -11,11 +11,23 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import config
+from app.authz import PRIVILEGES
 from app.database import get_db
 from app.main import app
 from app.models import Base
+from app.models.role import Role
 from app.models.user import User, ROLE_ADMIN, ROLE_MEMBER
 from app.security import hash_password
+
+
+def _seed_builtin_roles(sm):
+    """Migrations don't run in tests (tables come from Base.metadata), so seed the
+    built-in roles the same way migration 0010 does."""
+    db = sm()
+    db.add(Role(name=ROLE_ADMIN, privileges=list(PRIVILEGES), is_builtin=True))
+    db.add(Role(name=ROLE_MEMBER, privileges=[], is_builtin=True))
+    db.commit()
+    db.close()
 
 
 @pytest.fixture
@@ -28,6 +40,7 @@ def client(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     sm = sessionmaker(bind=engine, expire_on_commit=False)
+    _seed_builtin_roles(sm)
 
     def override_get_db():
         db = sm()
@@ -206,6 +219,73 @@ def test_deactivation_invalidates_existing_token(client):
     assert client.get("/repos/", headers=_auth(user_token)).status_code == 200
     client.patch(f"/users/{target.id}", headers=_auth(admin), json={"is_active": False})
     assert client.get("/repos/", headers=_auth(user_token)).status_code == 401
+
+
+# ── roles & privileges (RBAC) ─────────────────────────────────────────────────
+
+def _member_token(client, email="eng@factory.com", pw="correcthorse"):
+    _seed_user(client.sm, email, pw, role=ROLE_MEMBER)
+    return client.post("/auth/login", json={"email": email, "password": pw}).json()["access_token"]
+
+
+def test_me_includes_privileges(client):
+    me = client.get("/auth/me", headers=_auth(_admin_token(client))).json()
+    assert "manage_users" in me["privileges"] and "manage_roles" in me["privileges"]
+
+
+def test_member_can_list_but_not_manage_roles(client):
+    token = _member_token(client)
+    assert client.get("/roles", headers=_auth(token)).status_code == 200  # listing is open
+    r = client.post("/roles", headers=_auth(token), json={"name": "checker", "privileges": ["approve_drawing"]})
+    assert r.status_code == 403
+
+
+def test_admin_can_create_and_list_roles(client):
+    token = _admin_token(client)
+    r = client.post("/roles", headers=_auth(token), json={"name": "Checker", "privileges": ["approve_drawing"]})
+    assert r.status_code == 201
+    assert r.json()["name"] == "checker"  # normalized
+    assert r.json()["privileges"] == ["approve_drawing"] and r.json()["is_builtin"] is False
+    names = [x["name"] for x in client.get("/roles", headers=_auth(token)).json()]
+    assert "checker" in names and "admin" in names and "member" in names
+
+
+def test_create_role_rejects_unknown_privilege(client):
+    r = client.post("/roles", headers=_auth(_admin_token(client)), json={"name": "x", "privileges": ["fly"]})
+    assert r.status_code == 422
+
+
+def test_builtin_roles_are_immutable(client):
+    token = _admin_token(client)
+    admin_role = next(r for r in client.get("/roles", headers=_auth(token)).json() if r["name"] == "admin")
+    assert client.put(f"/roles/{admin_role['id']}", headers=_auth(token), json={"privileges": []}).status_code == 400
+    assert client.delete(f"/roles/{admin_role['id']}", headers=_auth(token)).status_code == 400
+
+
+def test_assigning_custom_role_grants_its_privileges(client):
+    admin = _admin_token(client)
+    client.post("/roles", headers=_auth(admin), json={"name": "checker", "privileges": ["approve_drawing"]})
+    target = _seed_user(client.sm, "eng@factory.com", "correcthorse")
+    assert client.patch(f"/users/{target.id}", headers=_auth(admin), json={"role": "checker"}).status_code == 200
+    t = client.post("/auth/login", json={"email": "eng@factory.com", "password": "correcthorse"}).json()["access_token"]
+    assert client.get("/auth/me", headers=_auth(t)).json()["privileges"] == ["approve_drawing"]
+
+
+def test_assign_unknown_role_rejected(client):
+    admin = _admin_token(client)
+    target = _seed_user(client.sm, "eng@factory.com", "correcthorse")
+    assert client.patch(f"/users/{target.id}", headers=_auth(admin), json={"role": "ghost"}).status_code == 400
+
+
+def test_delete_role_in_use_is_blocked(client):
+    admin = _admin_token(client)
+    rid = client.post("/roles", headers=_auth(admin),
+                      json={"name": "checker", "privileges": ["approve_drawing"]}).json()["id"]
+    target = _seed_user(client.sm, "eng@factory.com", "correcthorse")
+    client.patch(f"/users/{target.id}", headers=_auth(admin), json={"role": "checker"})
+    assert client.delete(f"/roles/{rid}", headers=_auth(admin)).status_code == 400   # in use
+    client.patch(f"/users/{target.id}", headers=_auth(admin), json={"role": "member"})
+    assert client.delete(f"/roles/{rid}", headers=_auth(admin)).status_code == 204   # now free
 
 
 # ── local vault delegates auth to the remote ──────────────────────────────────

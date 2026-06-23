@@ -68,6 +68,12 @@ export const createUser = body => authReq('POST', '/users', body)
 export const updateUser = (id, body) => authReq('PATCH', `/users/${id}`, body)
 export const deleteUser = id => authReq('DELETE', `/users/${id}`)
 
+// Roles (admin-managed). Like users, these always hit the shared user store.
+export const listRoles = () => authReq('GET', '/roles')
+export const createRole = body => authReq('POST', '/roles', body)
+export const updateRole = (id, body) => authReq('PUT', `/roles/${id}`, body)
+export const deleteRole = id => authReq('DELETE', `/roles/${id}`)
+
 // Repositories
 export const listRepos = () => req('GET', '/repos/')
 export const createRepo = body => req('POST', '/repos/', body)
