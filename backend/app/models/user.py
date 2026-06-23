@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import String, DateTime, Boolean, Integer
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
-# Role values. "admin" can manage other users (set role, activate/deactivate);
-# "member" has normal app access. Kept as plain strings (not a DB enum) so new
-# roles can be added later without a migration — see ROLES for the allowed set.
+# Built-in role names, seeded by migration 0010. "admin" carries every privilege
+# (incl. managing users/roles); "member" carries none. Admins create more roles
+# at runtime — these two just can't be deleted. A user's `role` column stores the
+# role NAME, which links it to a Role row (see role_obj below).
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
 ROLES = (ROLE_ADMIN, ROLE_MEMBER)
@@ -31,6 +32,34 @@ class User(Base):
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # link to the Role row BY NAME (users.role == roles.name) — not a FK, so the
+    # role column stays a plain string. Eager-loaded so listing users resolves
+    # each one's privileges in a single join.
+    role_obj: Mapped["Role"] = relationship(
+        "Role",
+        primaryjoin="foreign(User.role) == Role.name",
+        viewonly=True,
+        uselist=False,
+        lazy="joined",
+    )
+
+    @property
+    def privileges(self) -> list[str]:
+        """The user's effective privileges. Prefers an explicitly-set value
+        (security.get_current_user sets this on the LOCAL vault from the remote's
+        /auth/me, where there's no Role row to join); otherwise resolves from the
+        linked Role. Empty if neither is available."""
+        explicit = getattr(self, "_privileges", None)
+        if explicit is not None:
+            return explicit
+        return list(self.role_obj.privileges) if self.role_obj else []
+
+    @privileges.setter
+    def privileges(self, value):
+        self._privileges = list(value or [])
+
     @property
     def is_admin(self) -> bool:
-        return self.role == ROLE_ADMIN
+        # "admin" = whoever can manage users (kept for backward-compat callers)
+        from app.authz import MANAGE_USERS
+        return MANAGE_USERS in self.privileges

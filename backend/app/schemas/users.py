@@ -2,8 +2,6 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
-from app.models.user import ROLES
-
 
 def _normalize_email(v: str) -> str:
     """Lowercase + trim so 'Bob@Factory.com ' and 'bob@factory.com' are one user.
@@ -35,16 +33,16 @@ class AdminUserCreate(BaseModel):
     email: str
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = None
+    # any existing role name (admin/member or a custom role). The router checks
+    # the role actually exists before assigning it.
     role: str = "member"
 
     _norm_email = field_validator("email")(_normalize_email)
 
     @field_validator("role")
     @classmethod
-    def _valid_role(cls, v: str) -> str:
-        if v not in ROLES:
-            raise ValueError(f"role must be one of {ROLES}")
-        return v
+    def _clean_role(cls, v: str) -> str:
+        return v.strip().lower()
 
 
 class UserUpdate(BaseModel):
@@ -55,10 +53,8 @@ class UserUpdate(BaseModel):
 
     @field_validator("role")
     @classmethod
-    def _valid_role(cls, v: str | None) -> str | None:
-        if v is not None and v not in ROLES:
-            raise ValueError(f"role must be one of {ROLES}")
-        return v
+    def _clean_role(cls, v: str | None) -> str | None:
+        return v.strip().lower() if v is not None else None
 
 
 class UserResponse(BaseModel):
@@ -66,6 +62,8 @@ class UserResponse(BaseModel):
     email: str
     full_name: str | None
     role: str
+    # effective privileges, resolved from the user's role (see User.privileges)
+    privileges: list[str] = []
     is_active: bool
     created_at: datetime
 
