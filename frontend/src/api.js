@@ -128,6 +128,11 @@ export const syncStatus = repoId => req('GET', `/sync/status/${repoId}`)
 export const push = repoId => req('POST', `/sync/push/${repoId}`)
 export const pull = repoId => req('POST', `/sync/pull/${repoId}`)
 
+// Drawing approval (sign-off before push) — local-vault data endpoints
+export const getApprovals = repoId => req('GET', `/repos/${repoId}/approvals`)
+export const approveDrawing = (repoId, docId) => req('POST', `/repos/${repoId}/documents/${docId}/approve`)
+export const unapproveDrawing = (repoId, docId) => req('DELETE', `/repos/${repoId}/documents/${docId}/approve`)
+
 // Release requests
 export const createReleaseRequest = (repoId, docId, body) =>
   req('POST', `/repos/${repoId}/documents/${docId}/release-request`, body)

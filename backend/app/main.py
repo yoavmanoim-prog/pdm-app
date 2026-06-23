@@ -9,7 +9,7 @@ from app.bootstrap import ensure_bootstrap_admin
 from app.routers import (
     repositories, documents, commits, branches, tree,
     sync, vault_incoming, revisions, revision_requests, audit, watch,
-    auth, users, roles,
+    auth, users, roles, approvals,
 )
 
 # every endpoint behind this gate requires a valid login token. Declared once so
@@ -76,6 +76,7 @@ app.include_router(sync.router, dependencies=_auth)
 app.include_router(revisions.router, dependencies=_auth)
 app.include_router(revision_requests.router, dependencies=_auth)
 app.include_router(audit.router, dependencies=_auth)
+app.include_router(approvals.router, dependencies=_auth)   # drawing sign-off (self-gates approve_drawing)
 
 
 @app.get("/")

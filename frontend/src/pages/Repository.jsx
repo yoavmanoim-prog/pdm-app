@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo, listRemoteRepos, getRepoSettings, updateRepoSettings, createReleaseRequest, listReleaseRequests, approveReleaseRequest, denyReleaseRequest } from '../api'
+import { getApprovals, approveDrawing, unapproveDrawing } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 import { useMode } from '../context/ModeContext'
+import { useAuth } from '../context/AuthContext'
 
 // Friendly labels for the sync status pill
 const SYNC_LABELS = {
@@ -17,6 +19,7 @@ function RepositoryInner() {
   const { repoId } = useParams()
   const { version, refresh } = useRepo()
   const { mode, vaultUrl } = useMode()
+  const { can } = useAuth()
   const navigate = useNavigate()
 
   const [repo, setRepo]           = useState(null)
@@ -27,6 +30,8 @@ function RepositoryInner() {
   const [tree, setTree]           = useState([])
   const [validation, setValidation] = useState(null)
   const [sync, setSync]           = useState(null)
+  // map of document_id -> approval state for drawings with unpushed changes
+  const [approvals, setApprovals] = useState({})
   const [loading, setLoading]     = useState(true)
   const [selectedDiff, setSelectedDiff] = useState(null)
   const [linkingRemote, setLinkingRemote] = useState(false)
@@ -48,13 +53,16 @@ function RepositoryInner() {
         getTree(repoId),
         validateTree(repoId),
         syncStatus(repoId),
-      ]).then(([c, d, b, t, v, s]) => {
+        getApprovals(repoId),
+      ]).then(([c, d, b, t, v, s, a]) => {
         if (c.status === 'fulfilled') setCommits(c.value)
         if (d.status === 'fulfilled') setDocuments(d.value)
         if (b.status === 'fulfilled') setBranches(b.value)
         if (t.status === 'fulfilled') setTree(t.value)
         if (v.status === 'fulfilled') setValidation(v.value)
         if (s.status === 'fulfilled') setSync(s.value)
+        // key approval state by document for quick lookup in the drawing list
+        if (a.status === 'fulfilled') setApprovals(Object.fromEntries(a.value.map(x => [x.document_id, x])))
       })
     }).catch(() => setRepo(null)).finally(() => setLoading(false))
   }, [repoId, version])
@@ -68,6 +76,14 @@ function RepositoryInner() {
       alert(e.message)
       if (e.message.includes('Remote repository was deleted')) refresh()
     }
+  }
+  // sign off (or withdraw) a drawing's pending version. Needs approve_drawing.
+  const handleApprove = async (docId, approved) => {
+    try {
+      if (approved) await unapproveDrawing(repoId, docId)
+      else await approveDrawing(repoId, docId)
+      refresh()
+    } catch (e) { alert(e.message) }
   }
   const handlePull = async () => {
     try {
@@ -432,10 +448,24 @@ function DocumentsTab({ repoId, documents, validation }) {
                   </span>
                 )}
                 <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '3px' }}>{d.doc_type}</span>
+                {/* drawing sign-off state — only present for drawings with unpushed changes */}
+                {approvals[d.id] && (approvals[d.id].approved
+                  ? <span title={`Approved by ${approvals[d.id].approved_by}`}
+                      style={{ fontSize: '11px', color: '#1a5c2e', background: '#e7f6ec', padding: '2px 6px', borderRadius: '3px', marginLeft: '6px' }}>✓ approved</span>
+                  : <span style={{ fontSize: '11px', color: '#8a5a00', background: '#fdf3e2', padding: '2px 6px', borderRadius: '3px', marginLeft: '6px' }}>needs approval</span>)}
                 <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>View →</span>
               </div>
             </Link>
             <div style={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', display: 'flex', gap: '4px' }}>
+              {/* per-drawing Approve button — only for users who can sign off, and only
+                  for drawings with pending (unpushed) changes */}
+              {can('approve_drawing') && approvals[d.id] && (
+                <button
+                  onClick={e => { e.preventDefault(); handleApprove(d.id, approvals[d.id].approved) }}
+                  style={{ background: approvals[d.id].approved ? 'none' : '#1a5c2e', color: approvals[d.id].approved ? '#1a5c2e' : '#fff', border: '1px solid #1a5c2e', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px' }}>
+                  {approvals[d.id].approved ? 'Unapprove' : 'Approve'}
+                </button>
+              )}
               {mode === 'remote' && vd?.has_drawing && (
                 <button
                   onClick={e => { e.preventDefault(); setRequesting(requesting === d.id ? null : d.id); setEditing(null) }}

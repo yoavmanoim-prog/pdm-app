@@ -31,22 +31,37 @@ from app import config
 from app.database import get_db
 from app.main import app
 from app.models import Base
-from app.models.user import User, ROLE_ADMIN
+from app.models.role import Role
+from app.models.user import User, ROLE_ADMIN, ROLE_MEMBER
 from app.authz import PRIVILEGES
 from app.security import get_current_user
 from app.vault_client import RemoteRepoNotFoundError, VaultClient
 
+# stable id so the fake admin that overrides get_current_user matches a real row
+# seeded in each vault DB — needed now that push auto-approves drawings in the
+# pusher's name and the remote validates the approver against its user table.
+FAKE_ADMIN_ID = uuid.uuid4()
+
 
 def _make_db():
-    """A fresh in-memory SQLite DB. StaticPool keeps the one connection alive
-    so every session in the test sees the same in-memory data."""
+    """A fresh in-memory SQLite DB, seeded with the built-in roles + the fake
+    admin user that the e2e tests authenticate as. StaticPool keeps the one
+    connection alive so every session in the test sees the same in-memory data."""
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, expire_on_commit=False)
+    sm = sessionmaker(bind=engine, expire_on_commit=False)
+    db = sm()
+    db.add(Role(name=ROLE_ADMIN, privileges=list(PRIVILEGES), is_builtin=True))
+    db.add(Role(name=ROLE_MEMBER, privileges=[], is_builtin=True))
+    db.add(User(id=FAKE_ADMIN_ID, email="test@local", hashed_password="x",
+                role=ROLE_ADMIN, is_active=True))
+    db.commit()
+    db.close()
+    return sm
 
 
 @pytest.fixture
@@ -69,7 +84,7 @@ def vaults(monkeypatch):
     # real token check with a fake admin (admin == superset of member access).
     # The dedicated auth tests (test_auth.py) run the real security path instead.
     def _fake_admin():
-        u = User(id=uuid.uuid4(), email="test@local", role=ROLE_ADMIN, is_active=True)
+        u = User(id=FAKE_ADMIN_ID, email="test@local", role=ROLE_ADMIN, is_active=True)
         u.privileges = list(PRIVILEGES)  # full catalog so any privilege gate passes
         return u
     app.dependency_overrides[get_current_user] = _fake_admin

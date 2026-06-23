@@ -45,6 +45,13 @@ class CommitFile(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64))
     # "added", "modified", or "deleted"
     change_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # drawing sign-off: who approved THIS version of the drawing before it was
+    # pushed. NULL = not yet approved. A new commit on a document creates a fresh
+    # (unapproved) commit_file, so changing a drawing requires re-approval. Set by
+    # the approve endpoint or auto-stamped when a privileged user pushes.
+    approved_by: Mapped[str | None] = mapped_column(String(255))
+    approved_by_id: Mapped[uuid.UUID | None] = mapped_column()
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     commit: Mapped["Commit"] = relationship(back_populates="files")
     document: Mapped["Document"] = relationship(back_populates="commit_files")

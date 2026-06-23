@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from app.authz import APPROVE_DRAWING
 from app.database import get_db
 from app.config import settings
 from app import storage
@@ -11,6 +12,7 @@ from app.models.commit import Commit, CommitFile
 from app.models.repository import Repository
 from app.models.document import Document
 from app.models.revision import Revision
+from app.models.user import User
 
 router = APIRouter(prefix="/vault", tags=["vault"])
 
@@ -31,6 +33,10 @@ class CommitFilePayload(BaseModel):
     s3_key_pdf: str | None
     content_hash: str | None
     change_type: str
+    # drawing sign-off carried from the pushing vault (None for unapproved history)
+    approved_by: str | None = None
+    approved_by_id: uuid.UUID | None = None
+    approved_at: datetime | None = None
 
 
 class CommitPayload(BaseModel):
@@ -104,6 +110,15 @@ class PushPayload(BaseModel):
 @router.post("/incoming/commits")
 def receive_commits(payload: PushPayload, db: Session = Depends(get_db)):
     _require_remote()
+
+    # anti-forgery: any drawing approver named in the push must actually hold the
+    # approve_drawing privilege on this (authority) vault — a pushing vault can't
+    # invent an approver or name someone who isn't allowed to sign off.
+    approver_ids = {f.approved_by_id for c in payload.commits for f in c.files if f.approved_by_id}
+    for aid in approver_ids:
+        u = db.query(User).filter(User.id == aid).first()
+        if u is None or APPROVE_DRAWING not in u.privileges:
+            raise HTTPException(status_code=400, detail=f"Drawing approver {aid} lacks the approve_drawing privilege")
 
     with db.no_autoflush:
         # upsert repository
@@ -180,6 +195,9 @@ def receive_commits(payload: PushPayload, db: Session = Depends(get_db)):
                 s3_key_pdf=f.s3_key_pdf,
                 content_hash=f.content_hash,
                 change_type=f.change_type,
+                approved_by=f.approved_by,
+                approved_by_id=f.approved_by_id,
+                approved_at=f.approved_at,
             ))
 
         stored += 1
@@ -274,6 +292,9 @@ def snapshot(
                     "s3_key_pdf": f.s3_key_pdf,
                     "content_hash": f.content_hash,
                     "change_type": f.change_type,
+                    "approved_by": f.approved_by,
+                    "approved_by_id": str(f.approved_by_id) if f.approved_by_id else None,
+                    "approved_at": f.approved_at.isoformat() if f.approved_at else None,
                 }
                 for f in c.files
             ],
@@ -385,6 +406,9 @@ def serve_commits(
                     "s3_key_pdf": f.s3_key_pdf,
                     "content_hash": f.content_hash,
                     "change_type": f.change_type,
+                    "approved_by": f.approved_by,
+                    "approved_by_id": str(f.approved_by_id) if f.approved_by_id else None,
+                    "approved_at": f.approved_at.isoformat() if f.approved_at else None,
                 }
                 for f in c.files
             ],
