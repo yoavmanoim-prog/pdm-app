@@ -16,14 +16,14 @@ export default function ModeToggle() {
     cursor: 'pointer',
     fontSize: '13px',
     fontWeight: 600,
-    background: active ? '#1a1a2e' : '#e8e8f0',
-    color: active ? '#fff' : '#555',
+    background: active ? 'var(--accent)' : 'var(--surface-3)',
+    color: active ? '#fff' : 'var(--text-muted)',
     transition: 'all 0.15s',
   })
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <div style={{ display: 'flex', background: '#e8e8f0', borderRadius: '20px', padding: '2px', gap: '2px' }}>
+      <div style={{ display: 'flex', background: 'var(--surface-3)', borderRadius: '20px', padding: '2px', gap: '2px' }}>
         <button style={pillStyle(mode === 'local')} onClick={() => { switchMode('local'); navigate('/') }}>
           Local Vault
         </button>
@@ -46,20 +46,20 @@ export default function ModeToggle() {
       {editing && (
         <div style={{
           position: 'absolute', top: '52px', right: '20px', zIndex: 100,
-          background: '#fff', border: '1px solid #ddd', borderRadius: '8px',
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px',
           padding: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: '320px',
         }}>
-          <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>Remote vault URL</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>Remote vault URL</div>
           <div style={{ display: 'flex', gap: '6px' }}>
             <input
               value={urlInput}
               onChange={e => setUrlInput(e.target.value)}
               placeholder="https://d3df2y18th5fg7.cloudfront.net/api"
-              style={{ flex: 1, padding: '6px 10px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '13px' }}
+              style={{ flex: 1, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '13px' }}
             />
             <button
               onClick={() => { setRemoteUrl(urlInput); setEditing(false) }}
-              style={{ padding: '6px 12px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+              style={{ padding: '6px 12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
             >
               Save
             </button>

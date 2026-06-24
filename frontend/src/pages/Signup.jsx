@@ -36,17 +36,17 @@ export default function Signup() {
           onChange={e => setEmail(e.target.value)} style={input} />
         <input type="password" required minLength={8} placeholder="Password (min 8 chars)" value={password}
           onChange={e => setPassword(e.target.value)} style={input} />
-        {error && <p style={{ color: '#c0392b', margin: 0 }}>{error}</p>}
+        {error && <p style={{ color: 'var(--danger)', margin: 0 }}>{error}</p>}
         <button type="submit" disabled={busy} style={btn}>{busy ? 'Creating…' : 'Create account'}</button>
       </form>
-      <p style={{ fontSize: 13, color: '#666' }}>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
         Already have an account? <Link to="/login">Sign in</Link>
       </p>
     </div>
   )
 }
 
-const card = { maxWidth: 360, margin: '60px auto', padding: 24, border: '1px solid #ddd', borderRadius: 8 }
+const card = { maxWidth: 380, margin: '72px auto', padding: 28, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', boxShadow: 'var(--shadow)' }
 const form = { display: 'flex', flexDirection: 'column', gap: 12 }
-const input = { padding: '10px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14 }
-const btn = { padding: '10px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 14, cursor: 'pointer' }
+const input = { padding: '10px', border: '1px solid var(--border)', borderRadius: 4, fontSize: 14 }
+const btn = { padding: '10px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, fontSize: 14, cursor: 'pointer' }

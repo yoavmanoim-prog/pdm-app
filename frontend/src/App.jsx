@@ -33,20 +33,29 @@ function RequirePrivilege({ privilege, children }) {
   return children
 }
 
+const navLink = { fontSize: 13, color: 'var(--text-muted)', padding: '6px 10px', borderRadius: 6 }
+
 function UserMenu() {
   const { user, logout, can } = useAuth()
   const navigate = useNavigate()
   if (!user) return null
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-      {can('manage_users') && <Link to="/admin" style={{ fontSize: 13, color: '#1a1a2e' }}>Users</Link>}
-      {can('manage_roles') && <Link to="/roles" style={{ fontSize: 13, color: '#1a1a2e' }}>Roles</Link>}
-      <span style={{ fontSize: 13, color: '#666' }}>{user.email}</span>
-      <button
-        onClick={() => { logout(); navigate('/login') }}
-        style={{ fontSize: 12, padding: '4px 10px', border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>
-        Log out
-      </button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {can('manage_users') && <Link to="/admin" style={navLink}>Users</Link>}
+      {can('manage_roles') && <Link to="/roles" style={navLink}>Roles</Link>}
+      {/* user chip */}
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)',
+        background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 999, padding: '4px 6px 4px 12px', marginLeft: 6,
+      }}>
+        {user.email}
+        <button
+          onClick={() => { logout(); navigate('/login') }}
+          title="Log out"
+          style={{ fontSize: 12, padding: '3px 10px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--surface-3)', color: 'var(--text)' }}>
+          Log out
+        </button>
+      </span>
     </div>
   )
 }
@@ -76,20 +85,40 @@ function AppContent() {
 export default function App() {
   return (
     <ModeProvider>
-      <div style={{ fontFamily: 'sans-serif', maxWidth: '1100px', margin: '0 auto', padding: '20px', position: 'relative' }}>
-        <nav style={{ display: 'flex', alignItems: 'center', gap: '24px', marginBottom: '28px', borderBottom: '2px solid #1a1a2e', paddingBottom: '12px' }}>
-          <Link to="/" style={{ textDecoration: 'none' }}>
-            <strong style={{ fontSize: '18px', color: '#1a1a2e' }}>⚙ MechDocs PDM</strong>
+      {/* sticky full-width header bar */}
+      <header style={{
+        position: 'sticky', top: 0, zIndex: 30,
+        background: 'rgba(13, 20, 33, 0.85)', backdropFilter: 'blur(8px)',
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <nav style={{
+          maxWidth: '1180px', margin: '0 auto', padding: '12px 24px',
+          display: 'flex', alignItems: 'center', gap: '16px',
+        }}>
+          <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* logo chip */}
+            <span style={{
+              display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 8,
+              background: 'linear-gradient(135deg, var(--accent), #0b6b82)', color: '#021318',
+              fontSize: 16, boxShadow: '0 2px 8px -2px var(--accent)',
+            }}>⚙</span>
+            <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>
+              MechDocs <span style={{ color: 'var(--accent-bright)' }}>PDM</span>
+            </span>
           </Link>
-          <span style={{ color: '#888', fontSize: '13px' }}>Metal Factory Drawing Management</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <span style={{ color: 'var(--text-faint)', fontSize: '12px', borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+            Metal Factory Drawing Management
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
             <ModeToggle />
             <UserMenu />
           </div>
         </nav>
+      </header>
 
+      <main style={{ maxWidth: '1180px', margin: '0 auto', padding: '28px 24px 60px' }}>
         <AppContent />
-      </div>
+      </main>
     </ModeProvider>
   )
 }
