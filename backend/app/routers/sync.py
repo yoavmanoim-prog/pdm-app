@@ -47,22 +47,42 @@ def _remote_target(repo) -> uuid.UUID:
 
 # ── Remote repo discovery (for the link picker) ────────────────────────────────
 
+def _resolve_remote_base(url: str) -> str | None:
+    """Find the working vault base for a user-entered URL: try it as typed, then
+    with /api appended (CloudFront/ingress serve the API under /api). Returns the
+    base that answers a healthy vault, or None — so the user never has to know to
+    add /api themselves."""
+    base = url.strip().rstrip("/")
+    candidates = [base]
+    if not base.endswith("/api"):
+        candidates.append(base + "/api")
+    for candidate in candidates:
+        if VaultClient(remote_url=candidate).health() == "ok":
+            return candidate
+    return None
+
+
 @router.get("/remote-repos")
 def list_remote_repos(remote_url: str, db: Session = Depends(get_db)):
     """List repos on a remote vault so the user can choose which one to link to
     (or decide to create a new one). Used by the link dialog before saving."""
     _require_local()
-    client = VaultClient(remote_url=remote_url)
-    if client.health() != "ok":
+    base = _resolve_remote_base(remote_url)
+    if base is None:
         raise HTTPException(status_code=502, detail="Remote vault unreachable or misconfigured")
+    client = VaultClient(remote_url=base)
     try:
         repos = client.list_repos()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Could not list remote repos: {e}")
-    return [
-        {"id": str(r["id"]), "name": r.get("name"), "document_count": r.get("document_count", 0)}
-        for r in repos
-    ]
+    # return the RESOLVED base (incl. /api) so the UI links with a usable URL
+    return {
+        "remote_url": base,
+        "repos": [
+            {"id": str(r["id"]), "name": r.get("name"), "document_count": r.get("document_count", 0)}
+            for r in repos
+        ],
+    }
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
