@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { listRoles, createRole, updateRole, deleteRole } from '../api'
 
 // Role management: an admin builds roles (e.g. engineer / checker / manager) by
@@ -51,7 +52,10 @@ export default function Roles() {
 
   return (
     <div>
-      <h2>Role management</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h2>Role management</h2>
+        <Link to="/admin" style={{ fontSize: 14 }}>← Back to users</Link>
+      </div>
 
       {/* create a new role */}
       <form onSubmit={handleCreate} style={{ background: 'var(--surface-2)', padding: 14, borderRadius: 6, marginBottom: 24 }}>
