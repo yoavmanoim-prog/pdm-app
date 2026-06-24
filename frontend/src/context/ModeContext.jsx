@@ -35,9 +35,11 @@ export function ModeProvider({ children }) {
     return remoteUrl ? `${remoteUrl}/api` : '/api'
   }
 
-  // the human-readable vault URL — what a local vault engineer pastes into "Link Remote"
+  // the vault URL an engineer pastes into "Link Remote" — a directly usable one.
+  // On the deployed remote, the API lives under /api, so include it so the copied
+  // link works as-is (the link picker also resolves /api defensively).
   const vaultUrl = mode === 'remote'
-    ? (isLocalhost ? remoteUrl : window.location.origin)
+    ? (isLocalhost ? remoteUrl : `${window.location.origin}/api`)
     : 'http://localhost:8000'
 
   return (

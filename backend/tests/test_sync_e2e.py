@@ -307,7 +307,9 @@ def test_remote_repos_endpoint_lists_remote(vaults, monkeypatch):
 
     r = vaults.client.get("/sync/remote-repos?remote_url=http://remote.test")
     assert r.status_code == 200, r.text
-    assert "Gearbox" in [x["name"] for x in r.json()]
+    body = r.json()
+    assert body["remote_url"] == "http://remote.test"          # resolved usable base
+    assert "Gearbox" in [x["name"] for x in body["repos"]]
 
 
 def test_pull_flattens_branch_id(vaults):

@@ -36,6 +36,7 @@ function RepositoryInner() {
   const [linkingRemote, setLinkingRemote] = useState(false)
   const [remoteUrlInput, setRemoteUrlInput] = useState('')
   const [remoteRepos, setRemoteRepos] = useState(null)   // null = not fetched yet
+  const [resolvedRemoteUrl, setResolvedRemoteUrl] = useState('')  // base resolved by backend (incl. /api)
   const [fetchingRepos, setFetchingRepos] = useState(false)
   const [linkErr, setLinkErr] = useState(null)
 
@@ -92,20 +93,24 @@ function RepositoryInner() {
     setLinkErr(null)
     setLinkingRemote(true)
   }
-  // step 1: look up the repos on the entered remote vault
+  // step 1: look up the repos on the entered remote vault. The backend resolves
+  // /api for us and returns the working base URL to link with.
   const handleFetchRemoteRepos = async () => {
     const url = remoteUrlInput.trim()
     if (!url) return setLinkErr('Enter the remote vault URL first')
     setFetchingRepos(true); setLinkErr(null)
     try {
-      setRemoteRepos(await listRemoteRepos(url))
+      const data = await listRemoteRepos(url)
+      setRemoteRepos(data.repos)
+      setResolvedRemoteUrl(data.remote_url)   // usable URL (incl. /api)
     } catch (e) { setLinkErr(e.message); setRemoteRepos(null) }
     finally { setFetchingRepos(false) }
   }
-  // step 2: link to a chosen remote repo (remoteRepoId null = create a new one)
+  // step 2: link to a chosen remote repo (remoteRepoId null = create a new one).
+  // Use the resolved base URL so the saved link already includes /api.
   const handleLinkRemote = async (remoteRepoId) => {
     try {
-      await linkRepo(repoId, remoteUrlInput.trim(), remoteRepoId)
+      await linkRepo(repoId, resolvedRemoteUrl || remoteUrlInput.trim(), remoteRepoId)
       setLinkingRemote(false)
       refresh()
     } catch (e) { setLinkErr(e.message) }
