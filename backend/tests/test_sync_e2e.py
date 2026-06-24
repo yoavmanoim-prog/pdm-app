@@ -389,8 +389,22 @@ def test_member_can_push_after_checker_approves(vaults):
     assert vaults.client.post(f"/sync/push/{ids.repo_id}").status_code == 200
 
 
-def test_member_cannot_approve(vaults):
+def test_member_must_select_an_approver(vaults):
+    ids = _seed_local_repo(vaults.local)
+    app.dependency_overrides[get_current_user] = _member            # no approve_drawing
+    r = vaults.client.post(f"/repos/{ids.repo_id}/documents/{ids.doc_id}/approve")
+    assert r.status_code == 400                                     # must pick an approver
+
+
+def test_member_can_approve_by_selecting_an_approver(vaults):
+    from tests.conftest import FAKE_ADMIN_ID                        # a seeded user with approve_drawing
     ids = _seed_local_repo(vaults.local)
     app.dependency_overrides[get_current_user] = _member
-    r = vaults.client.post(f"/repos/{ids.repo_id}/documents/{ids.doc_id}/approve")
-    assert r.status_code == 403
+    r = vaults.client.post(
+        f"/repos/{ids.repo_id}/documents/{ids.doc_id}/approve",
+        json={"approver_id": str(FAKE_ADMIN_ID), "approver_name": "checker@local"},
+    )
+    assert r.status_code == 200
+    assert r.json()["approved"] is True and r.json()["approved_by"] == "checker@local"
+    # the drawing is now approved (in the checker's name), so the member can push it
+    assert vaults.client.post(f"/sync/push/{ids.repo_id}").status_code == 200

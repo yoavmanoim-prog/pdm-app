@@ -130,8 +130,12 @@ export const pull = repoId => req('POST', `/sync/pull/${repoId}`)
 
 // Drawing approval (sign-off before push) — local-vault data endpoints
 export const getApprovals = repoId => req('GET', `/repos/${repoId}/approvals`)
-export const approveDrawing = (repoId, docId) => req('POST', `/repos/${repoId}/documents/${docId}/approve`)
+// approver omitted = sign off as yourself (needs approve_drawing); a non-privileged
+// user passes { approver_id, approver_name } chosen from getApprovers().
+export const approveDrawing = (repoId, docId, approver) => req('POST', `/repos/${repoId}/documents/${docId}/approve`, approver)
 export const unapproveDrawing = (repoId, docId) => req('DELETE', `/repos/${repoId}/documents/${docId}/approve`)
+// the people who hold approve_drawing — choices for a non-privileged signer
+export const getApprovers = () => req('GET', '/approvers')
 
 // Release requests
 export const createReleaseRequest = (repoId, docId, body) =>

@@ -76,7 +76,8 @@ app.include_router(sync.router, dependencies=_auth)
 app.include_router(revisions.router, dependencies=_auth)
 app.include_router(revision_requests.router, dependencies=_auth)
 app.include_router(audit.router, dependencies=_auth)
-app.include_router(approvals.router, dependencies=_auth)   # drawing sign-off (self-gates approve_drawing)
+app.include_router(approvals.router, dependencies=_auth)            # drawing sign-off
+app.include_router(approvals.approvers_router, dependencies=_auth)  # who can sign off (proxied on local)
 
 
 @app.get("/")

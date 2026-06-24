@@ -277,6 +277,17 @@ def test_assign_unknown_role_rejected(client):
     assert client.patch(f"/users/{target.id}", headers=_auth(admin), json={"role": "ghost"}).status_code == 400
 
 
+def test_approvers_lists_users_with_approve_drawing(client):
+    admin = _admin_token(client)   # boss has the admin role (which grants approve_drawing)
+    client.post("/roles", headers=_auth(admin), json={"name": "checker", "privileges": ["approve_drawing"]})
+    _seed_user(client.sm, "chk@factory.com", "password123", role="checker")
+    _seed_user(client.sm, "eng@factory.com", "password123", role="member")   # NOT an approver
+    emails = [u["email"] for u in client.get("/approvers", headers=_auth(admin)).json()]
+    assert "chk@factory.com" in emails        # checker role -> approver
+    assert "boss@factory.com" in emails       # admin role -> approver
+    assert "eng@factory.com" not in emails    # member -> not an approver
+
+
 def test_delete_role_in_use_is_blocked(client):
     admin = _admin_token(client)
     rid = client.post("/roles", headers=_auth(admin),
