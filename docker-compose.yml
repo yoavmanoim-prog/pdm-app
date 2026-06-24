@@ -4,6 +4,10 @@ services:
   # Engineer's local workspace — commits go here first, then pushed to AWS
   local-vault:
     build: ./backend
+    # migrate the local DB on start (same as remote-vault) so a new migration
+    # never leaves local-db behind the code — that surfaces as 500s like
+    # "column commit_files.approved_by does not exist".
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     environment:

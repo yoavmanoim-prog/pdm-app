@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from app.authz import APPROVE_DRAWING, has_privilege
 from app.database import get_db
 from app.config import settings
 from app import storage
@@ -11,6 +12,9 @@ from app.models.commit import Commit, CommitFile
 from app.models.document import Document
 from app.models.repository import Repository
 from app.models.revision import Revision
+from app.models.user import User
+from app.routers.approvals import latest_unpushed_file, stamp_approval
+from app.security import get_current_user
 from app.vault_client import VaultClient, RemoteRepoNotFoundError
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -113,7 +117,11 @@ def sync_status(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 # ── Push ──────────────────────────────────────────────────────────────────────
 
 @router.post("/push/{repo_id}")
-def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
+def push(
+    repo_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
     _require_local()
 
     repo = db.get(Repository, repo_id)
@@ -160,6 +168,32 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     if not unpushed:
         return {"pushed": 0, "message": "Nothing to push"}
 
+    # --- drawing-approval gate ---
+    # Every drawing in this push must be approved (approve_drawing sign-off). If
+    # the pusher holds the privilege, auto-approve in their name; otherwise the
+    # push is blocked until a privileged user has signed off each drawing.
+    pusher_can_approve = has_privilege(current, APPROVE_DRAWING)
+    unpushed_doc_ids = {f.document_id for c in unpushed for f in c.files}
+    unapproved = []
+    for doc_id in unpushed_doc_ids:
+        head = latest_unpushed_file(db, repo_id, doc_id)
+        if head is None or head.approved_by_id is not None:
+            continue
+        if pusher_can_approve:
+            stamp_approval(head, current)  # privileged push = auto-approve as self
+        else:
+            unapproved.append(doc_id)
+    if unapproved:
+        names = [
+            (db.get(Document, d).part_number if db.get(Document, d) else str(d))
+            for d in unapproved
+        ]
+        raise HTTPException(
+            status_code=422,
+            detail=f"These drawings need approval before they can be pushed: {', '.join(names)}",
+        )
+    db.flush()  # persist any auto-approvals before we serialize the payload
+
     # send ALL documents and BOM entries for the whole repo — not just the docs
     # in the current push batch — so the remote always has the full picture.
     # A BOM entry created by retro_link_fathers references an already-pushed
@@ -191,6 +225,9 @@ def push(repo_id: uuid.UUID, db: Session = Depends(get_db)):
                     "s3_key_pdf": f.s3_key_pdf,
                     "content_hash": f.content_hash,
                     "change_type": f.change_type,
+                    "approved_by": f.approved_by,
+                    "approved_by_id": str(f.approved_by_id) if f.approved_by_id else None,
+                    "approved_at": f.approved_at.isoformat() if f.approved_at else None,
                 }
                 for f in c.files
             ],
@@ -330,6 +367,9 @@ def pull(repo_id: uuid.UUID, db: Session = Depends(get_db)):
                 s3_key_pdf=f.get("s3_key_pdf"),
                 content_hash=f.get("content_hash"),
                 change_type=f["change_type"],
+                approved_by=f.get("approved_by"),
+                approved_by_id=uuid.UUID(f["approved_by_id"]) if f.get("approved_by_id") else None,
+                approved_at=_parse_dt(f.get("approved_at")),
             ))
 
         pulled += 1

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, validateTree, syncStatus, push, pull, getDiff, editDocument, getDocumentLatestCommit, getDocumentBom, amendCommit, removeBomEntry, addBomEntry, linkRepo, listRemoteRepos, getRepoSettings, updateRepoSettings, createReleaseRequest, listReleaseRequests, approveReleaseRequest, denyReleaseRequest } from '../api'
+import { getApprovals, approveDrawing, unapproveDrawing, getApprovers } from '../api'
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 import { useMode } from '../context/ModeContext'
+import { useAuth } from '../context/AuthContext'
 
 // Friendly labels for the sync status pill
 const SYNC_LABELS = {
@@ -27,6 +29,8 @@ function RepositoryInner() {
   const [tree, setTree]           = useState([])
   const [validation, setValidation] = useState(null)
   const [sync, setSync]           = useState(null)
+  // map of document_id -> approval state for drawings with unpushed changes
+  const [approvals, setApprovals] = useState({})
   const [loading, setLoading]     = useState(true)
   const [selectedDiff, setSelectedDiff] = useState(null)
   const [linkingRemote, setLinkingRemote] = useState(false)
@@ -48,13 +52,16 @@ function RepositoryInner() {
         getTree(repoId),
         validateTree(repoId),
         syncStatus(repoId),
-      ]).then(([c, d, b, t, v, s]) => {
+        getApprovals(repoId),
+      ]).then(([c, d, b, t, v, s, a]) => {
         if (c.status === 'fulfilled') setCommits(c.value)
         if (d.status === 'fulfilled') setDocuments(d.value)
         if (b.status === 'fulfilled') setBranches(b.value)
         if (t.status === 'fulfilled') setTree(t.value)
         if (v.status === 'fulfilled') setValidation(v.value)
         if (s.status === 'fulfilled') setSync(s.value)
+        // key approval state by document for quick lookup in the drawing list
+        if (a.status === 'fulfilled') setApprovals(Object.fromEntries(a.value.map(x => [x.document_id, x])))
       })
     }).catch(() => setRepo(null)).finally(() => setLoading(false))
   }, [repoId, version])
@@ -265,7 +272,7 @@ function RepositoryInner() {
 
       {/* Documents tab */}
       {tab === 'documents' && (
-        <DocumentsTab repoId={repoId} documents={documents} validation={validation} />
+        <DocumentsTab repoId={repoId} documents={documents} validation={validation} approvals={approvals} />
       )}
 
 
@@ -388,11 +395,67 @@ function BranchesTab({ repoId, branches }) {
   )
 }
 
-function DocumentsTab({ repoId, documents, validation }) {
+// Popover menu for crediting an approver (shown to users who can't sign off
+// themselves). A fixed backdrop catches outside clicks to close it.
+function ApproverMenu({ approvers, approved, onPick, onClear, onClose }) {
+  return (
+    <>
+      <div onClick={e => { e.preventDefault(); onClose() }}
+        style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+      <div style={{ position: 'absolute', right: 0, top: '120%', zIndex: 41, background: '#fff', border: '1px solid #ccc', borderRadius: 6, boxShadow: '0 4px 14px rgba(0,0,0,0.15)', minWidth: 190 }}>
+        <div style={{ padding: '6px 10px', fontSize: 11, color: '#888', borderBottom: '1px solid #eee' }}>Approved by…</div>
+        {approvers.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12, color: '#aaa' }}>No approvers available</div>}
+        {approvers.map(a => (
+          <div key={a.id} onClick={e => { e.preventDefault(); onPick(a.id) }}
+            title={a.email}
+            style={{ padding: '8px 10px', fontSize: 12, cursor: 'pointer' }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#f2f7f4' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#fff' }}>
+            {a.full_name || a.email}
+          </div>
+        ))}
+        {approved && (
+          <div onClick={e => { e.preventDefault(); onClear() }}
+            style={{ padding: '8px 10px', fontSize: 12, color: '#c0392b', cursor: 'pointer', borderTop: '1px solid #eee' }}>
+            Clear approval
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+function DocumentsTab({ repoId, documents, validation, approvals }) {
   const { refresh } = useRepo()
   const { mode } = useMode()
+  const { can } = useAuth()
+  const canApprove = can('approve_drawing')
   const [editing, setEditing] = useState(null)
   const [requesting, setRequesting] = useState(null)   // doc id with open release request form
+  const [approveMenuFor, setApproveMenuFor] = useState(null)  // doc id with open approver menu
+  // people who can sign off — only needed when the current user can't, so they
+  // pick who approved the drawing
+  const [approvers, setApprovers] = useState([])
+  useEffect(() => { if (!canApprove) getApprovers().then(setApprovers).catch(() => {}) }, [canApprove])
+
+  // sign off in my own name (privileged) or withdraw approval
+  const handleApprove = async (docId, approved) => {
+    try {
+      if (approved) await unapproveDrawing(repoId, docId)
+      else await approveDrawing(repoId, docId)
+      refresh()
+    } catch (e) { alert(e.message) }
+  }
+  // record that a chosen approver signed off (non-privileged signer)
+  const handleSelectApprover = async (docId, approverId) => {
+    const a = approvers.find(x => x.id === approverId)
+    if (!a) return
+    try {
+      // credit the approver by name (fall back to email only if they have none)
+      await approveDrawing(repoId, docId, { approver_id: a.id, approver_name: a.full_name || a.email })
+      refresh()
+    } catch (e) { alert(e.message) }
+  }
 
   const revByDocId = {}
   if (validation) {
@@ -409,13 +472,16 @@ function DocumentsTab({ repoId, documents, validation }) {
         const vd = revByDocId[d.id]
         return (
           <div key={d.id}>
-          {/* document row — always visible */}
-          <div style={{ position: 'relative' }}>
+          {/* document row — always visible. Lift it above sibling rows while its
+              approver menu is open, so the menu isn't painted under the next row. */}
+          <div style={{ position: 'relative', zIndex: approveMenuFor === d.id ? 50 : undefined }}>
             <Link to={`/repos/${repoId}/documents/${d.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
               <div style={{
                 ...rowStyle,
                 cursor: 'pointer',
-                paddingRight: '60px',
+                // reserve room on the right for the (capped-width) approve control +
+                // Edit button so the in-flow badge / "View →" don't slide under them
+                paddingRight: approvals[d.id] ? '178px' : '60px',
                 borderRadius: editing === d.id ? '4px 4px 0 0' : '4px',
                 marginBottom: editing === d.id ? 0 : '6px',
                 borderBottom: editing === d.id ? 'none' : '1px solid #eee',
@@ -432,10 +498,42 @@ function DocumentsTab({ repoId, documents, validation }) {
                   </span>
                 )}
                 <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '3px' }}>{d.doc_type}</span>
+                {/* drawing sign-off state — only present for drawings with unpushed changes */}
+                {approvals[d.id] && (approvals[d.id].approved
+                  ? <span title={`Approved by ${approvals[d.id].approved_by}`}
+                      style={{ fontSize: '11px', color: '#1a5c2e', background: '#e7f6ec', padding: '2px 6px', borderRadius: '3px', marginLeft: '6px' }}>✓ approved</span>
+                  : <span style={{ fontSize: '11px', color: '#8a5a00', background: '#fdf3e2', padding: '2px 6px', borderRadius: '3px', marginLeft: '6px' }}>needs approval</span>)}
                 <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>View →</span>
               </div>
             </Link>
             <div style={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', display: 'flex', gap: '4px' }}>
+              {/* per-drawing sign-off — only for drawings with pending (unpushed) changes.
+                  If you hold approve_drawing you sign off yourself; otherwise you open a
+                  menu and pick who approved it from the people who do. */}
+              {approvals[d.id] && (canApprove
+                ? <button
+                    onClick={e => { e.preventDefault(); handleApprove(d.id, approvals[d.id].approved) }}
+                    style={{ background: approvals[d.id].approved ? 'none' : '#1a5c2e', color: approvals[d.id].approved ? '#1a5c2e' : '#fff', border: '1px solid #1a5c2e', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px' }}>
+                    {approvals[d.id].approved ? 'Unapprove' : 'Approve'}
+                  </button>
+                : <div style={{ position: 'relative' }}>
+                    <button
+                      onClick={e => { e.preventDefault(); setApproveMenuFor(approveMenuFor === d.id ? null : d.id) }}
+                      title={approvals[d.id].approved ? `Approved by ${approvals[d.id].approved_by}` : 'Choose who approved this drawing'}
+                      style={{ background: approvals[d.id].approved ? 'none' : '#1a5c2e', color: approvals[d.id].approved ? '#1a5c2e' : '#fff', border: '1px solid #1a5c2e', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {approvals[d.id].approved ? `✓ ${approvals[d.id].approved_by} ▾` : 'Approve ▾'}
+                    </button>
+                    {approveMenuFor === d.id && (
+                      <ApproverMenu
+                        approvers={approvers}
+                        approved={approvals[d.id].approved}
+                        onPick={aid => { handleSelectApprover(d.id, aid); setApproveMenuFor(null) }}
+                        onClear={() => { handleApprove(d.id, true); setApproveMenuFor(null) }}
+                        onClose={() => setApproveMenuFor(null)}
+                      />
+                    )}
+                  </div>
+              )}
               {mode === 'remote' && vd?.has_drawing && (
                 <button
                   onClick={e => { e.preventDefault(); setRequesting(requesting === d.id ? null : d.id); setEditing(null) }}
