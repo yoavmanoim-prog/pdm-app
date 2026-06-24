@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel
+from app.authz import APPROVE_RELEASE, require_privilege
 from app.database import get_db
 from app.config import settings
+from app.models.user import User
 from app.models.document import Document
 from app.models.commit import Commit, CommitFile
 from app.models.revision import Revision
@@ -51,11 +53,13 @@ class ReleaseRequestCreate(BaseModel):
 
 
 class ReleaseRequestDeny(BaseModel):
-    reviewed_by: str
+    # who reviewed — now taken from the authenticated user; kept optional so older
+    # callers that still send it don't break.
+    reviewed_by: str | None = None
 
 
 class ReleaseRequestApprove(BaseModel):
-    reviewed_by: str
+    reviewed_by: str | None = None
 
 
 @router.post("/{repo_id}/documents/{doc_id}/release-request", status_code=201)
@@ -158,8 +162,10 @@ def approve_release_request(
     req_id: uuid.UUID,
     body: ReleaseRequestApprove,
     db: Session = Depends(get_db),
+    current: User = Depends(require_privilege(APPROVE_RELEASE)),
 ):
     _require_remote()
+    reviewer = current.full_name or current.email   # sign-off is the logged-in user
 
     req = db.get(RevisionRequest, req_id)
     if not req or req.repository_id != repo_id:
@@ -187,7 +193,7 @@ def approve_release_request(
     if not result["passed"]:
         db.add(AuditEvent(
             repository_id=repo_id,
-            actor=body.reviewed_by,
+            actor=reviewer,
             action="publish_blocked",
             entity_type="document",
             entity_id=str(doc.id),
@@ -213,7 +219,7 @@ def approve_release_request(
         commit_id=latest_cf.commit_id,
         revision_code=req.proposed_revision_code,
         status="released",
-        published_by=body.reviewed_by,
+        published_by=reviewer,
         published_at=datetime.utcnow(),
         change_note=req.change_note,
         passed_protocol=True,
@@ -222,12 +228,12 @@ def approve_release_request(
     db.add(revision)
 
     req.status = "approved"
-    req.reviewed_by = body.reviewed_by
+    req.reviewed_by = reviewer
     req.reviewed_at = datetime.utcnow()
 
     db.add(AuditEvent(
         repository_id=repo_id,
-        actor=body.reviewed_by,
+        actor=reviewer,
         action="publish",
         entity_type="document",
         entity_id=str(doc.id),
@@ -259,8 +265,10 @@ def deny_release_request(
     req_id: uuid.UUID,
     body: ReleaseRequestDeny,
     db: Session = Depends(get_db),
+    current: User = Depends(require_privilege(APPROVE_RELEASE)),
 ):
     _require_remote()
+    reviewer = current.full_name or current.email
 
     req = db.get(RevisionRequest, req_id)
     if not req or req.repository_id != repo_id:
@@ -269,12 +277,12 @@ def deny_release_request(
         raise HTTPException(status_code=409, detail=f"Request is already {req.status}")
 
     req.status = "denied"
-    req.reviewed_by = body.reviewed_by
+    req.reviewed_by = reviewer
     req.reviewed_at = datetime.utcnow()
 
     db.add(AuditEvent(
         repository_id=repo_id,
-        actor=body.reviewed_by,
+        actor=reviewer,
         action="release_denied",
         entity_type="document",
         entity_id=str(req.document_id),

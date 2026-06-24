@@ -288,6 +288,31 @@ def test_delete_role_in_use_is_blocked(client):
     assert client.delete(f"/roles/{rid}", headers=_auth(admin)).status_code == 204   # now free
 
 
+# ── release sign-off gating (approve_release) ─────────────────────────────────
+
+def test_member_cannot_sign_off_releases(client):
+    token = _member_token(client)
+    rid, reqid, did = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    r = client.post(f"/repos/{rid}/release-requests/{reqid}/approve", headers=_auth(token), json={})
+    assert r.status_code == 403
+    d = client.post(f"/repos/{rid}/release-requests/{reqid}/deny", headers=_auth(token), json={})
+    assert d.status_code == 403
+    pub = {"document_id": did, "commit_hash": "x", "revision_code": "A"}
+    assert client.post(f"/repos/{rid}/revisions/publish", headers=_auth(token), json=pub).status_code == 403
+
+
+def test_approve_release_privilege_passes_the_gate(client):
+    # a custom role carrying approve_release gets PAST the privilege gate — it then
+    # 404s on the missing request rather than being 403'd.
+    admin = _admin_token(client)
+    client.post("/roles", headers=_auth(admin), json={"name": "manager", "privileges": ["approve_release"]})
+    _seed_user(client.sm, "mgr@factory.com", "password123", role="manager")
+    tok = client.post("/auth/login",
+                      json={"email": "mgr@factory.com", "password": "password123"}).json()["access_token"]
+    rid, reqid = str(uuid.uuid4()), str(uuid.uuid4())
+    assert client.post(f"/repos/{rid}/release-requests/{reqid}/approve", headers=_auth(tok), json={}).status_code == 404
+
+
 # ── local vault delegates auth to the remote ──────────────────────────────────
 
 @pytest.fixture

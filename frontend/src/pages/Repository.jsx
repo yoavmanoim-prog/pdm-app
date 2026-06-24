@@ -4,6 +4,7 @@ import { getRepo, getLog, listDocuments, listBranches, createBranch, getTree, va
 import WorkingDirectory from '../components/WorkingDirectory'
 import { RepoProvider, useRepo } from '../context/RepoContext'
 import { useMode } from '../context/ModeContext'
+import { useAuth } from '../context/AuthContext'
 
 // Friendly labels for the sync status pill
 const SYNC_LABELS = {
@@ -701,9 +702,10 @@ function ReleaseRequestForm({ repoId, doc, vd, onDone, onCancel }) {
 }
 
 function ReleasesTab({ repoId }) {
+  const { can } = useAuth()
+  const canRelease = can('approve_release')   // who may approve/deny + publish
   const [requests, setRequests] = useState([])
   const [loading, setLoading]   = useState(true)
-  const [reviewer, setReviewer] = useState('')
   const [acting, setActing]     = useState(null)   // req id being approved/denied
   const [err, setErr]           = useState(null)
 
@@ -716,12 +718,12 @@ function ReleasesTab({ repoId }) {
 
   useEffect(() => { load() }, [repoId])
 
+  // sign-off is recorded against the logged-in user by the backend — no name field
   const handle = async (reqId, action) => {
-    if (!reviewer.trim()) return setErr('Enter your name before approving or denying')
     setActing(reqId); setErr(null)
     try {
-      if (action === 'approve') await approveReleaseRequest(repoId, reqId, { reviewed_by: reviewer })
-      else await denyReleaseRequest(repoId, reqId, { reviewed_by: reviewer })
+      if (action === 'approve') await approveReleaseRequest(repoId, reqId)
+      else await denyReleaseRequest(repoId, reqId)
       load()
     } catch (e) { setErr(e.message) }
     finally { setActing(null) }
@@ -736,13 +738,13 @@ function ReleasesTab({ repoId }) {
     <div>
       {err && <p style={{ color: 'red', marginBottom: '12px' }}>{err}</p>}
 
-      {/* Reviewer name — shared field for all approve/deny actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-        <span style={{ fontSize: '13px', color: '#555' }}>Your name (auditor):</span>
-        <input value={reviewer} onChange={e => setReviewer(e.target.value)}
-          placeholder="Enter your name to approve or deny"
-          style={{ ...inputStyle, width: '260px' }} />
-      </div>
+      {/* sign-off is gated by the approve_release privilege; the reviewer is the
+          logged-in user (no free-text name field anymore) */}
+      {!canRelease && (
+        <p style={{ fontSize: '13px', color: '#8a5a00', background: '#fdf3e2', padding: '8px 12px', borderRadius: '4px', marginBottom: '20px' }}>
+          You can view release requests, but approving or denying needs the <strong>approve_release</strong> privilege.
+        </p>
+      )}
 
       <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>
         Pending requests {pending.length > 0 && <span style={{ color: '#e67e22' }}>({pending.length})</span>}
@@ -764,16 +766,18 @@ function ReleasesTab({ repoId }) {
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-            <button disabled={!!acting} onClick={() => handle(r.id, 'approve')}
-              style={{ ...btnSmall, background: '#1a5c2e', opacity: acting === r.id ? 0.6 : 1 }}>
-              {acting === r.id ? '…' : '✓ Release'}
-            </button>
-            <button disabled={!!acting} onClick={() => handle(r.id, 'deny')}
-              style={{ ...btnSmall, background: '#c0392b', opacity: acting === r.id ? 0.6 : 1 }}>
-              ✕ Deny
-            </button>
-          </div>
+          {canRelease && (
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+              <button disabled={!!acting} onClick={() => handle(r.id, 'approve')}
+                style={{ ...btnSmall, background: '#1a5c2e', opacity: acting === r.id ? 0.6 : 1 }}>
+                {acting === r.id ? '…' : '✓ Release'}
+              </button>
+              <button disabled={!!acting} onClick={() => handle(r.id, 'deny')}
+                style={{ ...btnSmall, background: '#c0392b', opacity: acting === r.id ? 0.6 : 1 }}>
+                ✕ Deny
+              </button>
+            </div>
+          )}
         </div>
       ))}
 
