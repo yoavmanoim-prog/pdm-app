@@ -19,7 +19,6 @@ function RepositoryInner() {
   const { repoId } = useParams()
   const { version, refresh } = useRepo()
   const { mode, vaultUrl } = useMode()
-  const { can } = useAuth()
   const navigate = useNavigate()
 
   const [repo, setRepo]           = useState(null)
@@ -76,14 +75,6 @@ function RepositoryInner() {
       alert(e.message)
       if (e.message.includes('Remote repository was deleted')) refresh()
     }
-  }
-  // sign off (or withdraw) a drawing's pending version. Needs approve_drawing.
-  const handleApprove = async (docId, approved) => {
-    try {
-      if (approved) await unapproveDrawing(repoId, docId)
-      else await approveDrawing(repoId, docId)
-      refresh()
-    } catch (e) { alert(e.message) }
   }
   const handlePull = async () => {
     try {
@@ -281,7 +272,7 @@ function RepositoryInner() {
 
       {/* Documents tab */}
       {tab === 'documents' && (
-        <DocumentsTab repoId={repoId} documents={documents} validation={validation} />
+        <DocumentsTab repoId={repoId} documents={documents} validation={validation} approvals={approvals} />
       )}
 
 
@@ -404,11 +395,21 @@ function BranchesTab({ repoId, branches }) {
   )
 }
 
-function DocumentsTab({ repoId, documents, validation }) {
+function DocumentsTab({ repoId, documents, validation, approvals }) {
   const { refresh } = useRepo()
   const { mode } = useMode()
+  const { can } = useAuth()
   const [editing, setEditing] = useState(null)
   const [requesting, setRequesting] = useState(null)   // doc id with open release request form
+
+  // sign off (or withdraw) a drawing's pending version. Needs approve_drawing.
+  const handleApprove = async (docId, approved) => {
+    try {
+      if (approved) await unapproveDrawing(repoId, docId)
+      else await approveDrawing(repoId, docId)
+      refresh()
+    } catch (e) { alert(e.message) }
+  }
 
   const revByDocId = {}
   if (validation) {
