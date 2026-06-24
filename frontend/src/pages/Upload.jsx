@@ -61,15 +61,15 @@ export default function Upload() {
 
   return (
     <div style={{ maxWidth: '560px' }}>
-      <Link to={`/repos/${repoId}`} style={{ color: '#888', fontSize: '13px' }}>← Back to repository</Link>
+      <Link to={`/repos/${repoId}`} style={{ color: 'var(--text-muted)', fontSize: '13px' }}>← Back to repository</Link>
       <h2 style={{ margin: '8px 0 20px' }}>Upload Drawing</h2>
 
       {/* Mode toggle */}
-      <div style={{ display: 'flex', gap: '0', marginBottom: '20px', border: '1px solid #ddd', borderRadius: '4px', overflow: 'hidden' }}>
-        <button onClick={() => setMode('commit')} style={{ flex: 1, padding: '8px', border: 'none', background: mode === 'commit' ? '#1a1a2e' : '#fff', color: mode === 'commit' ? '#fff' : '#333', cursor: 'pointer' }}>
+      <div style={{ display: 'flex', gap: '0', marginBottom: '20px', border: '1px solid var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
+        <button onClick={() => setMode('commit')} style={{ flex: 1, padding: '8px', border: 'none', background: mode === 'commit' ? 'var(--accent)' : 'var(--surface-2)', color: mode === 'commit' ? '#fff' : 'var(--text)', cursor: 'pointer' }}>
           Update Existing Drawing
         </button>
-        <button onClick={() => setMode('new')} style={{ flex: 1, padding: '8px', border: 'none', background: mode === 'new' ? '#1a1a2e' : '#fff', color: mode === 'new' ? '#fff' : '#333', cursor: 'pointer' }}>
+        <button onClick={() => setMode('new')} style={{ flex: 1, padding: '8px', border: 'none', background: mode === 'new' ? 'var(--accent)' : 'var(--surface-2)', color: mode === 'new' ? '#fff' : 'var(--text)', cursor: 'pointer' }}>
           New Drawing
         </button>
       </div>
@@ -119,13 +119,13 @@ export default function Upload() {
           value={message} onChange={e => setMessage(e.target.value)} style={inputStyle} />
 
         <button type="submit" disabled={loading}
-          style={{ padding: '10px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', marginTop: '4px' }}>
+          style={{ padding: '10px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', marginTop: '4px' }}>
           {loading ? 'Uploading…' : mode === 'new' ? 'Create & Upload' : 'Commit Drawing'}
         </button>
       </form>
 
       {status && (
-        <p style={{ marginTop: '16px', color: status.type === 'success' ? 'green' : 'red' }}>
+        <p style={{ marginTop: '16px', color: status.type === 'success' ? 'var(--success)' : 'var(--danger)' }}>
           {status.message}
         </p>
       )}
@@ -133,5 +133,5 @@ export default function Upload() {
   )
 }
 
-const inputStyle = { padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px' }
-const labelStyle = { fontSize: '13px', color: '#555', marginBottom: '-6px' }
+const inputStyle = { padding: '8px', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '14px' }
+const labelStyle = { fontSize: '13px', color: 'var(--text-muted)', marginBottom: '-6px' }

@@ -40,7 +40,7 @@ export default function List() {
   }
 
   if (loading) return <p>Loading...</p>
-  if (error) return <p style={{ color: 'red' }}>Error: {error}</p>
+  if (error) return <p style={{ color: 'var(--danger)' }}>Error: {error}</p>
 
   return (
     <div>
@@ -59,11 +59,11 @@ export default function List() {
 
       {/* One card per schematic */}
       {filtered.map(s => (
-        <div key={s.id} style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '16px', marginBottom: '12px' }}>
+        <div key={s.id} style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '16px', marginBottom: '12px' }}>
           <strong>{s.part_number}</strong>
-          {s.vehicle_make && <span style={{ marginLeft: '10px', color: '#666' }}>{s.vehicle_make} {s.model}</span>}
-          {s.description && <p style={{ margin: '6px 0', color: '#444' }}>{s.description}</p>}
-          <small style={{ color: '#999' }}>Version {s.version} · Uploaded {new Date(s.created_at).toLocaleDateString()}</small>
+          {s.vehicle_make && <span style={{ marginLeft: '10px', color: 'var(--text-muted)' }}>{s.vehicle_make} {s.model}</span>}
+          {s.description && <p style={{ margin: '6px 0', color: 'var(--text)' }}>{s.description}</p>}
+          <small style={{ color: 'var(--text-faint)' }}>Version {s.version} · Uploaded {new Date(s.created_at).toLocaleDateString()}</small>
           <br />
           <button
             onClick={() => handleDownload(s.id)}

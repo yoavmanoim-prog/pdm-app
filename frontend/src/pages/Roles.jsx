@@ -47,14 +47,14 @@ export default function Roles() {
   }
 
   if (loading) return <p>Loading roles…</p>
-  if (error) return <p style={{ color: 'red' }}>Error: {error}</p>
+  if (error) return <p style={{ color: 'var(--danger)' }}>Error: {error}</p>
 
   return (
     <div>
       <h2>Role management</h2>
 
       {/* create a new role */}
-      <form onSubmit={handleCreate} style={{ background: '#f5f5f5', padding: 14, borderRadius: 6, marginBottom: 24 }}>
+      <form onSubmit={handleCreate} style={{ background: 'var(--surface-2)', padding: 14, borderRadius: 6, marginBottom: 24 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
           <input required placeholder="New role name (e.g. checker)" value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })} style={input} />
@@ -73,20 +73,20 @@ export default function Roles() {
       {/* existing roles — edit privileges inline (built-ins are read-only) */}
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
         <thead>
-          <tr style={{ textAlign: 'left', borderBottom: '2px solid #1a1a2e' }}>
+          <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--accent)' }}>
             <th style={th}>Role</th><th style={th}>Privileges</th><th style={th}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {roles.map(role => (
-            <tr key={role.id} style={{ borderBottom: '1px solid #eee' }}>
+            <tr key={role.id} style={{ borderBottom: '1px solid var(--border-soft)' }}>
               <td style={td}>
-                {role.name}{role.is_builtin && <span style={{ color: '#888' }}> (built-in)</span>}
+                {role.name}{role.is_builtin && <span style={{ color: 'var(--text-muted)' }}> (built-in)</span>}
               </td>
               <td style={td}>
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                   {ALL_PRIVILEGES.map(([priv, label]) => (
-                    <label key={priv} style={{ fontSize: 12, color: role.is_builtin ? '#999' : '#222' }}>
+                    <label key={priv} style={{ fontSize: 12, color: role.is_builtin ? 'var(--text-faint)' : 'var(--text)' }}>
                       <input type="checkbox" disabled={role.is_builtin}
                         checked={role.privileges.includes(priv)}
                         onChange={() => savePrivs(role, togglePriv(role.privileges, priv))} /> {priv}
@@ -96,7 +96,7 @@ export default function Roles() {
               </td>
               <td style={td}>
                 {!role.is_builtin && (
-                  <button onClick={() => remove(role)} style={{ ...smallBtn, color: '#c0392b' }}>Delete</button>
+                  <button onClick={() => remove(role)} style={{ ...smallBtn, color: 'var(--danger)' }}>Delete</button>
                 )}
               </td>
             </tr>
@@ -107,8 +107,8 @@ export default function Roles() {
   )
 }
 
-const input = { padding: '8px', border: '1px solid #ccc', borderRadius: 4, fontSize: 13 }
-const btn = { padding: '8px 14px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }
-const smallBtn = { padding: '4px 8px', background: '#fff', border: '1px solid #ccc', borderRadius: 4, cursor: 'pointer', fontSize: 12 }
+const input = { padding: '8px', border: '1px solid var(--border)', borderRadius: 4, fontSize: 13 }
+const btn = { padding: '8px 14px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }
+const smallBtn = { padding: '4px 8px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', fontSize: 12 }
 const th = { padding: '8px 6px' }
 const td = { padding: '8px 6px', verticalAlign: 'top' }
