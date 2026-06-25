@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel
+from app.authz import APPROVE_RELEASE, require_privilege
 from app.database import get_db
 from app.config import settings
+from app.models.user import User
 from app.models.document import Document
 from app.models.commit import Commit
 from app.models.revision import Revision
@@ -19,16 +21,23 @@ class PublishRequest(BaseModel):
     document_id: uuid.UUID
     commit_hash: str       # short hash of the commit being released
     revision_code: str     # "A", "B", "C" …
-    published_by: str
+    # who published — now the authenticated user; optional for back-compat callers
+    published_by: str | None = None
     change_note: str | None = None
 
 
 # ── Step 30 — publish revision (remote vault only) ────────────────────────────
 
 @router.post("/{repo_id}/revisions/publish")
-def publish_revision(repo_id: uuid.UUID, body: PublishRequest, db: Session = Depends(get_db)):
+def publish_revision(
+    repo_id: uuid.UUID,
+    body: PublishRequest,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_privilege(APPROVE_RELEASE)),
+):
     if settings.VAULT_MODE != "remote":
         raise HTTPException(status_code=403, detail="Revisions can only be published on the remote vault")
+    publisher = current.full_name or current.email
 
     doc = db.get(Document, body.document_id)
     if not doc or doc.repository_id != repo_id:
@@ -47,7 +56,7 @@ def publish_revision(repo_id: uuid.UUID, body: PublishRequest, db: Session = Dep
     if not result["passed"]:
         db.add(AuditEvent(
             repository_id=repo_id,
-            actor=body.published_by,
+            actor=publisher,
             action="publish_blocked",
             entity_type="document",
             entity_id=str(body.document_id),
@@ -73,7 +82,7 @@ def publish_revision(repo_id: uuid.UUID, body: PublishRequest, db: Session = Dep
         commit_id=commit.id,
         revision_code=body.revision_code.upper(),
         status="released",
-        published_by=body.published_by,
+        published_by=publisher,
         published_at=datetime.utcnow(),
         change_note=body.change_note,
         passed_protocol=True,
@@ -83,7 +92,7 @@ def publish_revision(repo_id: uuid.UUID, body: PublishRequest, db: Session = Dep
 
     db.add(AuditEvent(
         repository_id=repo_id,
-        actor=body.published_by,
+        actor=publisher,
         action="publish",
         entity_type="document",
         entity_id=str(body.document_id),

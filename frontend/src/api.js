@@ -10,27 +10,83 @@ function getBase() {
   return remote ? `${remote}/api` : '/api'
 }
 
-async function req(method, path, body) {
-  const opts = { method, headers: {} }
+// Auth + user management always resolve against the REMOTE user store, NOT the
+// Local/Remote data toggle. On the deployed site this is the remote vault itself
+// (same-origin /api). On a local workstation it goes through the local vault on
+// :8000, which forwards auth to whatever REMOTE_VAULT_URL points at — so login
+// always hits the one shared user store regardless of which vault you're browsing.
+function authBase() {
+  if (window.location.hostname !== 'localhost') return '/api'
+  return 'http://localhost:8000'
+}
+
+// Watch/browse always talks to the local vault — it reads the local filesystem
+// regardless of which vault mode the UI is in.
+const LOCAL_BASE = 'http://localhost:8000'
+
+// where the login token lives. The backend stamps every request's identity from
+// the JWT in the Authorization header, so we attach it to every call below.
+const TOKEN_KEY = 'authToken'
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = t => t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY)
+
+function authHeaders() {
+  const t = getToken()
+  return t ? { Authorization: `Bearer ${t}` } : {}
+}
+
+async function req(method, path, body, base = getBase()) {
+  const opts = { method, headers: { ...authHeaders() } }
   if (body && !(body instanceof FormData)) {
     opts.headers['Content-Type'] = 'application/json'
     opts.body = JSON.stringify(body)
   } else if (body) {
     opts.body = body  // FormData — browser sets Content-Type automatically
   }
-  const res = await fetch(`${getBase()}${path}`, opts)
+  const res = await fetch(`${base}${path}`, opts)
   if (!res.ok) {
+    // 401 anywhere except the login/signup calls themselves means our token is
+    // missing or expired — drop it and bounce to the login screen.
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      setToken(null)
+      if (window.location.pathname !== '/login') window.location.assign('/login')
+    }
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail))
   }
   return res.status === 204 ? null : res.json()
 }
 
+// Auth + users always go to the shared user store (authBase), independent of the
+// data-vault toggle — so the login page works no matter which vault is selected.
+const authReq = (method, path, body) => req(method, path, body, authBase())
+export const signup = body => authReq('POST', '/auth/signup', body)
+export const login = body => authReq('POST', '/auth/login', body)
+export const getMe = () => authReq('GET', '/auth/me')
+export const listUsers = () => authReq('GET', '/users')
+export const createUser = body => authReq('POST', '/users', body)
+export const updateUser = (id, body) => authReq('PATCH', `/users/${id}`, body)
+export const deleteUser = id => authReq('DELETE', `/users/${id}`)
+
+// Roles (admin-managed). Like users, these always hit the shared user store.
+export const listRoles = () => authReq('GET', '/roles')
+export const createRole = body => authReq('POST', '/roles', body)
+export const updateRole = (id, body) => authReq('PUT', `/roles/${id}`, body)
+export const deleteRole = id => authReq('DELETE', `/roles/${id}`)
+
 // Repositories
 export const listRepos = () => req('GET', '/repos/')
 export const createRepo = body => req('POST', '/repos/', body)
 export const getRepo = id => req('GET', `/repos/${id}`)
 export const deleteRepo = id => req('DELETE', `/repos/${id}`)
+export const linkRepo = (id, remoteUrl, remoteRepoId = null) =>
+  req('PATCH', `/repos/${id}`, { remote_url: remoteUrl, remote_repo_id: remoteRepoId })
+// list repos on a remote vault so the user can pick which one to link to
+export const listRemoteRepos = remoteUrl =>
+  req('GET', `/sync/remote-repos?remote_url=${encodeURIComponent(remoteUrl)}`)
+// per-repo settings (e.g. part-number format derived from a sample)
+export const getRepoSettings = id => req('GET', `/repos/${id}/settings`)
+export const updateRepoSettings = (id, body) => req('PUT', `/repos/${id}/settings`, body)
 
 // Documents
 export const listDocuments = repoId => req('GET', `/repos/${repoId}/documents/`)
@@ -72,6 +128,24 @@ export const syncStatus = repoId => req('GET', `/sync/status/${repoId}`)
 export const push = repoId => req('POST', `/sync/push/${repoId}`)
 export const pull = repoId => req('POST', `/sync/pull/${repoId}`)
 
+// Drawing approval (sign-off before push) — local-vault data endpoints
+export const getApprovals = repoId => req('GET', `/repos/${repoId}/approvals`)
+// approver omitted = sign off as yourself (needs approve_drawing); a non-privileged
+// user passes { approver_id, approver_name } chosen from getApprovers().
+export const approveDrawing = (repoId, docId, approver) => req('POST', `/repos/${repoId}/documents/${docId}/approve`, approver)
+export const unapproveDrawing = (repoId, docId) => req('DELETE', `/repos/${repoId}/documents/${docId}/approve`)
+// the people who hold approve_drawing — choices for a non-privileged signer
+export const getApprovers = () => req('GET', '/approvers')
+
+// Release requests
+export const createReleaseRequest = (repoId, docId, body) =>
+  req('POST', `/repos/${repoId}/documents/${docId}/release-request`, body)
+export const listReleaseRequests = repoId => req('GET', `/repos/${repoId}/release-requests`)
+export const approveReleaseRequest = (repoId, reqId, body) =>
+  req('POST', `/repos/${repoId}/release-requests/${reqId}/approve`, body)
+export const denyReleaseRequest = (repoId, reqId, body) =>
+  req('POST', `/repos/${repoId}/release-requests/${reqId}/deny`, body)
+
 // Audit
 export const getAudit = (repoId, params = '') => req('GET', `/repos/${repoId}/audit${params}`)
 export const getBreaches = repoId => req('GET', `/repos/${repoId}/audit/breaches`)
@@ -81,5 +155,8 @@ export const getDocumentHistory = (repoId, docId) =>
 // Working directory
 export const getWatchStatus = repoId => req('GET', `/repos/${repoId}/watch/status`)
 export const watchCommit = (repoId, formData) => req('POST', `/repos/${repoId}/watch/commit`, formData)
-export const browseWatch = (path = '') => req('GET', `/watch/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`)
-export const watchPreviewUrl = (repoId, filename) => `${getBase()}/repos/${repoId}/watch/preview/${encodeURIComponent(filename)}`
+// browseWatch and watchPreviewUrl always use LOCAL_BASE — they access the local filesystem
+export const browseWatch = (path = '') =>
+  fetch(`${LOCAL_BASE}/watch/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`)
+    .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(new Error(e.detail || r.statusText))))
+export const watchPreviewUrl = (repoId, filename) => `${LOCAL_BASE}/repos/${repoId}/watch/preview/${encodeURIComponent(filename)}`

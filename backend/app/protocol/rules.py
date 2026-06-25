@@ -10,10 +10,53 @@ from app.models.document import Document
 from app.models.revision import Revision
 from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
+from app.models.repository import Repository
+from app.settings_config import effective_settings
 from app import storage
 
-# Valid revision sequence — I and O are skipped (look like 1 and 0)
+# Valid revision sequence for the "letters" scheme — I and O are skipped
+# (look like 1 and 0). The "numbers" scheme uses 001, 002, 003 ...
 REVISION_SEQUENCE = list("ABCDEFGHJKLMNP")
+
+
+def _scheme_for(document: Document, db: Session) -> str:
+    """The repo's revision-code scheme ('letters' or 'numbers')."""
+    repo = db.get(Repository, document.repository_id)
+    return effective_settings(repo)["revision_scheme"]
+
+
+def is_valid_revision(scheme: str, code: str) -> bool:
+    if scheme == "numbers":
+        return bool(code) and code.isdigit()
+    return bool(code) and code.upper() in REVISION_SEQUENCE
+
+
+def revision_rank(scheme: str, code: str):
+    """Ordering value for a revision code, or None if it isn't valid for the scheme."""
+    if scheme == "numbers":
+        return int(code) if code and code.isdigit() else None
+    try:
+        return REVISION_SEQUENCE.index(code.upper())
+    except (ValueError, AttributeError):
+        return None
+
+
+def first_revision(scheme: str) -> str:
+    return "001" if scheme == "numbers" else REVISION_SEQUENCE[0]
+
+
+def next_revision(scheme: str, current: str):
+    """Next code after current; None if there's no next (letters maxed at P,
+    numbers capped at 999)."""
+    if scheme == "numbers":
+        nxt = (int(current) + 1) if (current and current.isdigit()) else 1
+        return f"{nxt:03d}" if nxt <= 999 else None
+    try:
+        idx = REVISION_SEQUENCE.index(current.upper())
+    except (ValueError, AttributeError):
+        return REVISION_SEQUENCE[0]
+    return REVISION_SEQUENCE[idx + 1] if idx + 1 < len(REVISION_SEQUENCE) else None
+
 
 # Keywords that indicate a BOM table is present in the drawing.
 # Based on real factory drawing headers: Item, Quantity, Name, Part number, Description, Material, Revision
@@ -26,15 +69,6 @@ BOM_TABLE_KEYWORDS = {
     "MATERIAL",
     "REVISION", "REVISI",           # "REVISI ON" split variant
 }
-
-
-def _next_expected(current_code: str) -> str | None:
-    """Returns the letter that must follow current_code."""
-    try:
-        idx = REVISION_SEQUENCE.index(current_code.upper())
-        return REVISION_SEQUENCE[idx + 1] if idx + 1 < len(REVISION_SEQUENCE) else None
-    except ValueError:
-        return None
 
 
 def _extract_pdf_text(document: Document, db: Session) -> str | None:
@@ -59,12 +93,21 @@ def _extract_pdf_text(document: Document, db: Session) -> str | None:
 
 
 class RevisionSequenceRule:
-    """Cannot skip revision letters. A must come before B, B before C, etc."""
+    """Revisions move strictly forward through the sequence.
+
+    Skipping is allowed (A -> C is fine), but a release must use a letter that
+    comes *later* than the current revision — no duplicates and no going
+    backward. The first release can be any valid letter (it does not have to be
+    Rev A).
+    """
 
     def validate(self, document: Document, proposed_code: str, db: Session) -> list[str]:
-        proposed_code = proposed_code.upper()
+        scheme = _scheme_for(document, db)
+        code = (proposed_code or "").strip()
 
-        if proposed_code not in REVISION_SEQUENCE:
+        if not is_valid_revision(scheme, code):
+            if scheme == "numbers":
+                return [f"'{proposed_code}' is not a valid revision number — use digits, e.g. 001, 002, 003."]
             return [
                 f"'{proposed_code}' is not a valid revision letter. "
                 f"Valid sequence: {', '.join(REVISION_SEQUENCE)}"
@@ -77,18 +120,23 @@ class RevisionSequenceRule:
             .first()
         )
 
+        # first release may be any valid value — no requirement to start at A/001
         if latest is None:
-            if proposed_code != "A":
-                return [f"First revision must be Rev A, not Rev {proposed_code}"]
             return []
 
-        expected = _next_expected(latest.revision_code)
-        if expected is None:
-            return ["Maximum revision letter reached"]
-        if proposed_code != expected:
+        current_rank = revision_rank(scheme, latest.revision_code)
+        if current_rank is None:
+            # current code isn't valid for this scheme (e.g. the repo just
+            # switched letters<->numbers) — don't block the changeover
+            return []
+
+        # strictly forward: later than the current one. Rejects duplicates and
+        # going backward, while allowing skips.
+        if revision_rank(scheme, code) <= current_rank:
+            unit = "number" if scheme == "numbers" else "letter"
             return [
-                f"Revision sequence violation: current is Rev {latest.revision_code}, "
-                f"next must be Rev {expected}, not Rev {proposed_code}"
+                f"Revision must move forward: current is Rev {latest.revision_code}, "
+                f"so Rev {proposed_code} is not allowed — choose a later {unit}."
             ]
         return []
 

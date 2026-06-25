@@ -8,6 +8,8 @@ from app.models.commit import Commit, CommitFile
 from app.models.bom import BOMEntry
 from app.models.revision import Revision
 from app.models.audit import AuditEvent
+from app.models.user import User
+from app.models.role import Role
 
 __all__ = [
     "Base",
@@ -19,4 +21,6 @@ __all__ = [
     "BOMEntry",
     "Revision",
     "AuditEvent",
+    "User",
+    "Role",
 ]

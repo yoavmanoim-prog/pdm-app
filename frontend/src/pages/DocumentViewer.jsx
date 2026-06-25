@@ -18,7 +18,7 @@ export default function DocumentViewer() {
   }, [repoId, docId])
 
   if (loading) return <p>Loading document…</p>
-  if (error)   return <p style={{ color: 'red' }}>{error}</p>
+  if (error)   return <p style={{ color: 'var(--danger)' }}>{error}</p>
   if (!data)   return null
 
   const version = data.versions[selected]  // the currently selected version entry
@@ -26,14 +26,14 @@ export default function DocumentViewer() {
   return (
     <div>
       {/* breadcrumb navigation */}
-      <Link to={`/repos/${repoId}`} style={{ color: '#888', fontSize: '13px' }}>
+      <Link to={`/repos/${repoId}`} style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
         ← Back to repository
       </Link>
 
       {/* document header */}
       <div style={{ margin: '8px 0 20px' }}>
         <h2 style={{ margin: '4px 0' }}>{data.part_number} — {data.title}</h2>
-        <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '2px 8px', borderRadius: '3px' }}>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)', background: 'var(--surface-2)', padding: '2px 8px', borderRadius: '3px' }}>
           {data.doc_type}
         </span>
       </div>
@@ -42,12 +42,12 @@ export default function DocumentViewer() {
 
         {/* LEFT PANEL — version list */}
         <div style={{ width: '260px', flexShrink: 0 }}>
-          <h3 style={{ fontSize: '14px', margin: '0 0 10px', color: '#555' }}>
+          <h3 style={{ fontSize: '14px', margin: '0 0 10px', color: 'var(--text-muted)' }}>
             {data.versions.length} version{data.versions.length !== 1 ? 's' : ''}
           </h3>
 
           {data.versions.length === 0 && (
-            <p style={{ color: '#aaa', fontSize: '13px' }}>No commits for this document yet.</p>
+            <p style={{ color: 'var(--text-faint)', fontSize: '13px' }}>No commits for this document yet.</p>
           )}
 
           {data.versions.map((v, i) => (
@@ -57,24 +57,24 @@ export default function DocumentViewer() {
               style={{
                 display: 'block', width: '100%', textAlign: 'left',
                 padding: '10px 12px', marginBottom: '6px',
-                border: '1px solid ' + (i === selected ? '#1a1a2e' : '#eee'),
-                borderRadius: '4px', background: i === selected ? '#1a1a2e' : '#fff',
-                color: i === selected ? '#fff' : '#333', cursor: 'pointer',
+                border: '1px solid ' + (i === selected ? 'var(--accent)' : 'var(--border-soft)'),
+                borderRadius: '4px', background: i === selected ? 'var(--accent)' : 'var(--surface-2)',
+                color: i === selected ? '#fff' : 'var(--text)', cursor: 'pointer',
               }}
             >
               {/* commit hash badge */}
               <code style={{
                 fontSize: '11px', padding: '1px 5px', borderRadius: '3px',
-                background: i === selected ? 'rgba(255,255,255,.2)' : '#f0f0f0',
-                color: i === selected ? '#fff' : '#333',
+                background: i === selected ? 'rgba(255,255,255,.2)' : 'var(--surface-2)',
+                color: i === selected ? '#fff' : 'var(--text)',
               }}>
                 {v.commit_hash}
               </code>
               {/* change type badge: "added" or "modified" */}
               <span style={{
                 marginLeft: '6px', fontSize: '10px', padding: '1px 5px', borderRadius: '3px',
-                background: v.change_type === 'added' ? '#d4edda' : '#fff3cd',
-                color: v.change_type === 'added' ? '#155724' : '#856404',
+                background: v.change_type === 'added' ? 'var(--success-bg)' : 'var(--warning-bg)',
+                color: v.change_type === 'added' ? 'var(--success)' : 'var(--warning)',
               }}>
                 {v.change_type}
               </span>
@@ -90,13 +90,13 @@ export default function DocumentViewer() {
 
         {/* RIGHT PANEL — PDF viewer(s) */}
         <div style={{ flex: 1 }}>
-          {!version && <p style={{ color: '#aaa' }}>Select a version to view the PDF.</p>}
+          {!version && <p style={{ color: 'var(--text-faint)' }}>Select a version to view the PDF.</p>}
 
           {version && (
             <>
               {/* current version PDF */}
               <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: '#333' }}>
+                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text)' }}>
                   Current — <code style={{ fontWeight: 400 }}>{version.commit_hash}</code>
                   {' '}· {version.author}
                 </div>
@@ -105,23 +105,23 @@ export default function DocumentViewer() {
                   <iframe
                     src={version.current_pdf_url}
                     title="Current PDF"
-                    style={{ width: '100%', height: '520px', border: '1px solid #ddd', borderRadius: '4px' }}
+                    style={{ width: '100%', height: '520px', border: '1px solid var(--border)', borderRadius: '4px' }}
                   />
                 ) : (
-                  <p style={{ color: '#aaa', fontSize: '13px' }}>PDF not available for this version.</p>
+                  <p style={{ color: 'var(--text-faint)', fontSize: '13px' }}>PDF not available for this version.</p>
                 )}
               </div>
 
               {/* previous version PDF — only shown when this commit has a parent version */}
               {version.previous_pdf_url && (
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: '#888' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-muted)' }}>
                     Previous version (before this commit)
                   </div>
                   <iframe
                     src={version.previous_pdf_url}
                     title="Previous PDF"
-                    style={{ width: '100%', height: '520px', border: '1px solid #eee', borderRadius: '4px' }}
+                    style={{ width: '100%', height: '520px', border: '1px solid var(--border-soft)', borderRadius: '4px' }}
                   />
                 </div>
               )}

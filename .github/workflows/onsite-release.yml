@@ -1,0 +1,30 @@
+name: On-site Release
+
+# Builds the AWS-free ON-SITE offline bundle and attaches it to the GitHub
+# release. Runs ONLY on production version tags (v*), so the on-site image tag is
+# exactly the main-branch release tag — never a dev/hand-set value.
+#
+# Self-contained: no ECR/AWS. It builds the backend + frontend images, pulls
+# postgres, docker-saves all three, and packs pdm-onsite-<version>.tar.gz for
+# air-gapped install. Kept in its own workflow so the cloud CI is untouched.
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  package-onsite:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to attach the tarball to the release
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build on-site offline release
+        # GITHUB_REF_NAME is the tag (e.g. v2.0.1); release.sh strips the "v"
+        # and validates the x.y.z semantic version.
+        run: ./release.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Attach offline bundle to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pdm-onsite-*.tar.gz

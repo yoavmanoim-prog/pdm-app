@@ -1,3 +1,4 @@
+import re
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -8,6 +9,9 @@ from app.models.bom import BOMEntry
 from app.models.commit import Commit, CommitFile
 from app.models.revision import Revision
 from app.schemas.bom import BOMEntryCreate, BOMEntryResponse
+
+# matches REV-01, REV-A, REV-02B, etc. in a document title
+_REV_RE = re.compile(r'\bREV-([A-Z0-9]+)\b', re.IGNORECASE)
 
 router = APIRouter(prefix="/repos", tags=["product-tree"])
 
@@ -24,8 +28,8 @@ def add_bom_entry(
     assembly = db.get(Document, assembly_id)
     if not assembly or assembly.repository_id != repo_id:
         raise HTTPException(status_code=404, detail="Assembly document not found")
-    if assembly.doc_type != "assembly":
-        raise HTTPException(status_code=400, detail="Target document is not an assembly")
+    if assembly.doc_type not in ("assembly", "part"):
+        raise HTTPException(status_code=400, detail="Target document is not an assembly or part")
 
     component = db.get(Document, body.component_id)
     if not component or component.repository_id != repo_id:
@@ -118,7 +122,14 @@ def _build_node(doc: Document, db: Session, visited: set) -> dict:
 def get_product_tree(repo_id: uuid.UUID, db: Session = Depends(get_db)):
     """Top-level nodes = documents not used as a component anywhere."""
     all_docs = db.query(Document).filter(Document.repository_id == repo_id).all()
-    component_ids = {e.component_id for e in db.query(BOMEntry).all()}
+    # Only this repo's BOM links matter — joining through the component document
+    # scopes the query to this repo instead of scanning every BOM entry.
+    component_ids = {
+        cid
+        for (cid,) in db.query(BOMEntry.component_id)
+        .join(Document, Document.id == BOMEntry.component_id)
+        .filter(Document.repository_id == repo_id)
+    }
     roots = [d for d in all_docs if d.id not in component_ids]
     return [_build_node(doc, db, set()) for doc in roots]
 
@@ -138,10 +149,23 @@ def validate_tree(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             .order_by(desc(Revision.published_at))
             .first()
         )
-        has_drawing = db.query(CommitFile).join(Commit).filter(
-            CommitFile.document_id == doc.id,
-            Commit.branch_id.is_(None),
-        ).first() is not None
+        latest_cf = (
+            db.query(CommitFile)
+            .join(Commit)
+            .filter(CommitFile.document_id == doc.id, Commit.branch_id.is_(None))
+            .order_by(desc(Commit.timestamp))
+            .first()
+        )
+        has_drawing = latest_cf is not None
+        missing_components = []
+        if latest_cf:
+            diff = latest_cf.commit.diff_report or {}
+            missing_components = diff.get("missing_components", [])
+
+        vault_revision = latest_rev.revision_code if latest_rev else None
+        title_rev_match = _REV_RE.search(doc.title or '')
+        title_revision = title_rev_match.group(1).upper() if title_rev_match else None
+        revision_mismatch = bool(title_revision and vault_revision and title_revision != vault_revision)
 
         result.append({
             "document_id": str(doc.id),
@@ -149,18 +173,23 @@ def validate_tree(repo_id: uuid.UUID, db: Session = Depends(get_db)):
             "title": doc.title,
             "doc_type": doc.doc_type,
             "has_drawing": has_drawing,
-            "revision": latest_rev.revision_code if latest_rev else None,
+            "revision": vault_revision,
             "revision_status": latest_rev.status if latest_rev else "unreleased",
             "is_released": latest_rev is not None and latest_rev.status == "released",
+            "missing_components": missing_components,
+            "title_revision": title_revision,
+            "revision_mismatch": revision_mismatch,
         })
 
     released = sum(1 for r in result if r["is_released"])
     missing = sum(1 for r in result if not r["has_drawing"])
+    mismatched = sum(1 for r in result if r["revision_mismatch"])
 
     return {
         "total": len(result),
         "released": released,
         "unreleased": len(result) - released,
         "missing_drawing": missing,
+        "revision_mismatches": mismatched,
         "documents": result,
     }

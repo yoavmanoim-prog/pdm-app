@@ -1,3 +1,4 @@
+import logging
 import uuid
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -12,9 +13,23 @@ from app.models.bom import BOMEntry
 from app.models.audit import AuditEvent
 from app.schemas.documents import DocumentCreate, DocumentResponse
 from app.config import settings
+from app.settings_config import effective_settings, part_number_matches, mask_from_example
 from app import storage
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["documents"])
+
+
+def _check_part_number_format(repo, part_number: str) -> None:
+    """Reject a part number that doesn't match the repo's configured format.
+    No sample configured = no validation (legacy behaviour)."""
+    example = effective_settings(repo)["part_number_example"]
+    if example and not part_number_matches(example, part_number):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Part number '{part_number}' doesn't match this repository's format "
+                   f"'{mask_from_example(example)}' (from sample '{example}'; A = letter, # = digit).",
+        )
 
 
 @router.post("/{repo_id}/documents/", response_model=DocumentResponse, status_code=201)
@@ -34,8 +49,10 @@ def create_document(repo_id: uuid.UUID, body: DocumentCreate, db: Session = Depe
             detail=f"Part number '{body.part_number}' already exists in this repository",
         )
 
-    if body.doc_type not in ("detail", "assembly"):
-        raise HTTPException(status_code=400, detail="doc_type must be 'detail' or 'assembly'")
+    if body.doc_type not in ("detail", "assembly", "part"):
+        raise HTTPException(status_code=400, detail="doc_type must be 'detail', 'assembly', or 'part'")
+
+    _check_part_number_format(repo, body.part_number)
 
     doc = Document(
         repository_id=repo_id,
@@ -59,12 +76,15 @@ def list_documents(repo_id: uuid.UUID, db: Session = Depends(get_db)):
 
 @router.patch("/{repo_id}/documents/{doc_id}", response_model=DocumentResponse)
 def edit_document(repo_id: uuid.UUID, doc_id: uuid.UUID, body: DocumentCreate, db: Session = Depends(get_db)):
+    if settings.VAULT_MODE != "local":
+        raise HTTPException(status_code=403, detail="Document metadata can only be edited on the local vault")
     doc = db.get(Document, doc_id)
     if not doc or doc.repository_id != repo_id:
         raise HTTPException(status_code=404, detail="Document not found")
-    if body.doc_type not in ("detail", "assembly"):
-        raise HTTPException(status_code=400, detail="doc_type must be 'detail' or 'assembly'")
+    if body.doc_type not in ("detail", "assembly", "part"):
+        raise HTTPException(status_code=400, detail="doc_type must be 'detail', 'assembly', or 'part'")
     if body.part_number != doc.part_number:
+        _check_part_number_format(db.get(Repository, repo_id), body.part_number)
         clash = db.query(Document).filter(
             Document.repository_id == repo_id,
             Document.part_number == body.part_number,
@@ -114,14 +134,12 @@ def get_document_commits(repo_id: uuid.UUID, doc_id: uuid.UUID, db: Session = De
     versions = []
     for i, cf in enumerate(commit_files):
         commit = cf.commit
-        current_url = storage.generate_presigned_url(cf.s3_key_pdf) if cf.s3_key_pdf else None
+        current_url = storage.presigned_url_if_exists(cf.s3_key_pdf)
 
         # the "previous" version is the next item in the list (we are sorted newest-first)
         prev_url = None
         if i + 1 < len(commit_files):
-            prev_cf = commit_files[i + 1]
-            if prev_cf.s3_key_pdf:
-                prev_url = storage.generate_presigned_url(prev_cf.s3_key_pdf)
+            prev_url = storage.presigned_url_if_exists(commit_files[i + 1].s3_key_pdf)
 
         versions.append({
             "commit_hash": commit.short_hash,
@@ -213,17 +231,28 @@ async def upload_document(
     # SHA-256 of the PDF — used to reject commits with no actual changes
     content_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-    # check if this exact file was already uploaded (no-op commit guard)
-    prev = (
+    # no-op guard: compare against the LATEST committed version of this document on
+    # this branch. (commit_id is a UUID, so ordering by it is random — join Commit
+    # and order by timestamp, as create_commit does.)
+    prev_file = (
         db.query(CommitFile)
-        .filter(CommitFile.document_id == doc_id)
-        .order_by(CommitFile.commit_id)
+        .join(Commit)
+        .filter(
+            Commit.repository_id == repo_id,
+            CommitFile.document_id == doc_id,
+            Commit.branch_id == branch_id,
+        )
+        .order_by(desc(Commit.timestamp))
         .first()
     )
-    if prev and prev.content_hash == content_hash:
+    if prev_file and prev_file.content_hash == content_hash:
         raise HTTPException(status_code=400, detail="No changes detected — file is identical to the current version")
 
-    short_hash = content_hash[:8]
+    # include branch + doc so the same PDF in different documents/branches still gets a
+    # unique short_hash (short_hash has a global unique constraint).
+    short_hash = hashlib.sha256(
+        f"{content_hash}-{branch_id or 'main'}-{doc_id}".encode()
+    ).hexdigest()[:8]
 
     # store PDF in S3 under a stable path: {repo}/{doc}/{hash}.pdf
     s3_key_pdf = storage.upload_file(
@@ -278,6 +307,14 @@ async def upload_document(
     ))
 
     db.commit()
+
+    # auto-link BOM sons and retroactively link this doc to existing assemblies
+    try:
+        from app.services.pdf_bom import auto_link_sons, retro_link_fathers
+        auto_link_sons(pdf_bytes, repo_id, doc_id, db)
+        retro_link_fathers(repo_id, doc_id, db)
+    except Exception as e:
+        logger.warning("pdf_bom extraction failed for doc %s: %s", doc_id, e)
 
     return {
         "commit_hash": short_hash,

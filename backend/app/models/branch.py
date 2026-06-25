@@ -1,12 +1,23 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey
+from sqlalchemy import String, DateTime, ForeignKey, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 
 class Branch(Base):
     __tablename__ = "branches"
+    # only one OPEN branch per name in a repo; names are reusable once a
+    # branch is merged/closed, so this is a partial unique index
+    __table_args__ = (
+        Index(
+            "uq_branches_one_open_per_name",
+            "repository_id",
+            "name",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     repository_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repositories.id"), nullable=False)

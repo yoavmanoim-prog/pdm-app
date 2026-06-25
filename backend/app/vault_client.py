@@ -2,15 +2,31 @@ import httpx
 from app.config import settings
 
 
+class RemoteRepoNotFoundError(Exception):
+    """Raised when the remote vault returns 404 for a repository."""
+
+
 class VaultClient:
     """HTTP client for local vault → remote vault communication."""
 
-    def __init__(self):
-        self.base_url = settings.REMOTE_VAULT_URL.rstrip("/")
+    def __init__(self, remote_url: str | None = None):
+        # per-repo remote_url takes priority over the global env var
+        url = remote_url or settings.REMOTE_VAULT_URL
+        self.base_url = url.rstrip("/")
 
-    def _get(self, path: str, **kwargs):
+    def _get(self, path: str, raise_on_404: bool = False, **kwargs):
         resp = httpx.get(f"{self.base_url}{path}", timeout=30, **kwargs)
+        if resp.status_code == 404 and raise_on_404:
+            raise RemoteRepoNotFoundError(resp.json().get("detail", "Not found"))
         resp.raise_for_status()
+        # CloudFront's SPA fallback can turn a backend 404 into a 200 that serves
+        # the frontend index.html. If we asked the API for JSON and got HTML, the
+        # request never reached the backend — for a repo-scoped GET that means the
+        # repo isn't there; otherwise it's a routing/config problem.
+        if "application/json" not in resp.headers.get("content-type", "").lower():
+            if raise_on_404:
+                raise RemoteRepoNotFoundError("Remote returned HTML, not JSON — repo not found behind the CDN")
+            raise RuntimeError(f"Expected JSON from {path}, got {resp.headers.get('content-type')!r}")
         return resp.json()
 
     def _post(self, path: str, json=None, **kwargs):
@@ -18,24 +34,58 @@ class VaultClient:
         resp.raise_for_status()
         return resp.json()
 
-    def ping(self) -> bool:
-        """Check if the remote vault is reachable."""
-        try:
-            data = self._get("/health")
-            return data.get("healthy", False)
-        except Exception:
-            return False
+    def health(self) -> str:
+        """Probe the remote /health endpoint.
 
-    def push_commits(self, commits: list[dict], repository: dict = None, documents: list = None) -> dict:
-        """Send local commits (plus repo/document metadata) to the remote vault."""
+        Returns one of:
+          "ok"            — a healthy vault answered
+          "misconfigured" — something answered but it isn't a vault health
+                            endpoint (e.g. the URL is missing /api and we hit
+                            the frontend, which returns HTML, not JSON)
+          "unreachable"   — the connection itself failed
+        """
+        try:
+            resp = httpx.get(f"{self.base_url}/health", timeout=10)
+        except Exception:
+            return "unreachable"
+        try:
+            data = resp.json()
+        except Exception:
+            return "misconfigured"
+        if isinstance(data, dict) and data.get("healthy"):
+            return "ok"
+        return "misconfigured"
+
+    def ping(self) -> bool:
+        """True only if a healthy vault answered."""
+        return self.health() == "ok"
+
+    def push_commits(self, commits: list[dict], repository: dict = None,
+                     documents: list = None, bom_entries: list = None,
+                     diff_report_patches: list = None) -> dict:
+        """Send local commits (plus repo/document/BOM metadata) to the remote vault."""
         return self._post("/vault/incoming/commits", json={
             "commits": commits,
             "repository": repository,
             "documents": documents or [],
+            "bom_entries": bom_entries or [],
+            "diff_report_patches": diff_report_patches or [],
         })
 
+    def list_repos(self) -> list[dict]:
+        """List the repositories on the remote vault — used by the link picker so
+        a local repo can be connected to a chosen remote repo (or a new one)."""
+        return self._get("/repos/")
+
+    def pull_snapshot(self, repo_id: str, since_hash: str | None = None) -> dict:
+        """Fetch commits, documents, BOM entries, and revisions from the remote vault."""
+        params = {}
+        if since_hash:
+            params["since_hash"] = since_hash
+        return self._get(f"/vault/snapshot/{repo_id}", raise_on_404=True, params=params)
+
     def pull_commits(self, repo_id: str, since_hash: str | None = None) -> list[dict]:
-        """Fetch commits from the remote vault that the local vault doesn't have."""
+        """Fetch commits from the remote vault (backwards-compatible, used by sync_status)."""
         params = {"repo_id": repo_id}
         if since_hash:
             params["since_hash"] = since_hash

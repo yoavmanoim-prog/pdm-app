@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { listRepos, createRepo, deleteRepo } from '../api'
 import FolderPicker from '../components/FolderPicker'
+import { useMode } from '../context/ModeContext'
 
 export default function Dashboard() {
+  const { mode } = useMode()
   const [repos, setRepos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showNew, setShowNew] = useState(false)
-  const [form, setForm] = useState({ name: '', description: '', watch_path: '' })
+  const [form, setForm] = useState({ name: '', description: '', watch_path: '', remote_url: '' })
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function Dashboard() {
   }
 
   if (loading) return <p>Loading repositories…</p>
-  if (error) return <p style={{ color: 'red' }}>Error: {error}</p>
+  if (error) return <p style={{ color: 'var(--danger)' }}>Error: {error}</p>
 
   return (
     <div>
@@ -39,7 +41,7 @@ export default function Dashboard() {
       </div>
 
       {showNew && (
-        <form onSubmit={handleCreate} style={{ background: '#f5f5f5', padding: '16px', borderRadius: '6px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <form onSubmit={handleCreate} style={{ background: 'var(--surface-2)', padding: '16px', borderRadius: '6px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ display: 'flex', gap: '10px' }}>
             <input required placeholder="Repository name" value={form.name}
               onChange={e => setForm({ ...form, name: e.target.value })}
@@ -48,22 +50,37 @@ export default function Dashboard() {
               onChange={e => setForm({ ...form, description: e.target.value })}
               style={{ ...inputStyle, flex: 2 }} />
           </div>
-          <div>
-            <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-              Directory to watch <span style={{ color: '#aaa' }}>(like git init — linked permanently to this repo)</span>
-            </div>
-            <FolderPicker
-              value={form.watch_path}
-              onChange={v => setForm({ ...form, watch_path: v })}
-            />
-          </div>
+          {mode === 'local' && (
+            <>
+              <div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Directory to watch <span style={{ color: 'var(--text-faint)' }}>(like git init — linked permanently to this repo)</span>
+                </div>
+                <FolderPicker
+                  value={form.watch_path}
+                  onChange={v => setForm({ ...form, watch_path: v })}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Remote vault URL <span style={{ color: 'var(--text-faint)' }}>(optional — link to a remote repo for push/pull)</span>
+                </div>
+                <input
+                  placeholder="https://your-remote-vault.example.com"
+                  value={form.remote_url}
+                  onChange={e => setForm({ ...form, remote_url: e.target.value })}
+                  style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
+                />
+              </div>
+            </>
+          )}
           <div>
             <button type="submit" style={btnStyle}>Create</button>
           </div>
         </form>
       )}
 
-      {repos.length === 0 && <p style={{ color: '#888' }}>No repositories yet. Create one to get started.</p>}
+      {repos.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No repositories yet. Create one to get started.</p>}
 
       {repos.map(r => (
         <div key={r.id} style={{ position: 'relative' }}>
@@ -74,7 +91,7 @@ export default function Dashboard() {
               await deleteRepo(r.id)
               setRepos(repos.filter(x => x.id !== r.id))
             }}
-            style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 1, background: 'none', border: '1px solid #ddd', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontSize: '12px', color: '#999' }}
+            style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-faint)' }}
           >
             Delete
           </button>
@@ -83,11 +100,11 @@ export default function Dashboard() {
             {/* top row: repo name + description */}
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
               <strong style={{ fontSize: '16px' }}>{r.name}</strong>
-              {r.description && <span style={{ color: '#666', fontSize: '14px' }}>{r.description}</span>}
+              {r.description && <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>{r.description}</span>}
             </div>
 
             {/* stats row: document count and latest commit */}
-            <div style={{ display: 'flex', gap: '24px', marginTop: '8px', fontSize: '12px', color: '#888' }}>
+            <div style={{ display: 'flex', gap: '24px', marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
               {/* document_count comes from the enriched list endpoint */}
               <span>{r.document_count} document{r.document_count !== 1 ? 's' : ''}</span>
 
@@ -95,17 +112,17 @@ export default function Dashboard() {
                 // show the most recent commit hash, author, and message
                 <span>
                   Last commit{' '}
-                  <code style={{ background: '#f0f0f0', padding: '1px 4px', borderRadius: '3px' }}>
+                  <code style={{ background: 'var(--surface-2)', padding: '1px 4px', borderRadius: '3px' }}>
                     {r.latest_commit.hash}
                   </code>
                   {' '}by {r.latest_commit.author} — {r.latest_commit.message}
                 </span>
               ) : (
-                <span style={{ color: '#ccc' }}>No commits yet</span>
+                <span style={{ color: 'var(--border)' }}>No commits yet</span>
               )}
             </div>
 
-            <div style={{ marginTop: '6px', fontSize: '11px', color: '#bbb' }}>
+            <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-faint)' }}>
               Created {new Date(r.created_at).toLocaleDateString()}
             </div>
           </div>
@@ -116,6 +133,6 @@ export default function Dashboard() {
   )
 }
 
-const btnStyle = { padding: '8px 16px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }
-const inputStyle = { padding: '8px', border: '1px solid #ccc', borderRadius: '4px', flex: 1 }
-const cardStyle = { border: '1px solid #ddd', borderRadius: '6px', padding: '16px', marginBottom: '10px', cursor: 'pointer', transition: 'background .15s' }
+const btnStyle = { padding: '8px 16px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }
+const inputStyle = { padding: '8px', border: '1px solid var(--border)', borderRadius: '4px', flex: 1 }
+const cardStyle = { border: '1px solid var(--border)', borderRadius: '6px', padding: '16px', marginBottom: '10px', cursor: 'pointer', transition: 'background .15s' }

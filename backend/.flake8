@@ -1,5 +1,7 @@
 [flake8]
 max-line-length = 120
-# F821 = undefined name — ignored because SQLAlchemy uses string forward references
-# in Mapped["ClassName"] type hints which flake8 incorrectly flags as undefined
-extend-ignore = F821
+# F821 = undefined name — only the models use SQLAlchemy string forward references
+# in Mapped["ClassName"] type hints, so the ignore is scoped to app/models/.
+# Keeping F821 active everywhere else catches real bugs (e.g. names lost in a merge).
+per-file-ignores =
+    app/models/*.py:F821

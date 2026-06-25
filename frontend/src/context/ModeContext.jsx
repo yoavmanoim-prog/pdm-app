@@ -11,16 +11,20 @@ export function ModeProvider({ children }) {
   const [remoteUrl, setRemoteUrlState] = useState(
     () => localStorage.getItem('remoteVaultUrl') || ''
   )
+  // increments on every vault change — used as a key to remount the page tree
+  const [vaultKey, setVaultKey] = useState(0)
 
   function switchMode(m) {
     setMode(m)
     localStorage.setItem('vaultMode', m)
+    setVaultKey(k => k + 1)
   }
 
   function setRemoteUrl(url) {
     const trimmed = url.trim().replace(/\/$/, '')
     setRemoteUrlState(trimmed)
     localStorage.setItem('remoteVaultUrl', trimmed)
+    setVaultKey(k => k + 1)
   }
 
   // the base URL api.js should use for the current mode
@@ -31,8 +35,15 @@ export function ModeProvider({ children }) {
     return remoteUrl ? `${remoteUrl}/api` : '/api'
   }
 
+  // the vault URL an engineer pastes into "Link Remote" — a directly usable one.
+  // On the deployed remote, the API lives under /api, so include it so the copied
+  // link works as-is (the link picker also resolves /api defensively).
+  const vaultUrl = mode === 'remote'
+    ? (isLocalhost ? remoteUrl : `${window.location.origin}/api`)
+    : 'http://localhost:8000'
+
   return (
-    <ModeContext.Provider value={{ mode, switchMode, remoteUrl, setRemoteUrl, apiBase }}>
+    <ModeContext.Provider value={{ mode, switchMode, remoteUrl, setRemoteUrl, apiBase, vaultKey, vaultUrl }}>
       {children}
     </ModeContext.Provider>
   )

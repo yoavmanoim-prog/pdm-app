@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -26,5 +27,19 @@ def get_db():
     db: Session = _SessionLocal()
     try:
         yield db
+    finally:
+        db.close()
+
+
+@contextmanager
+def session_scope():
+    # A DB session for code that runs OUTSIDE a request (e.g. the startup admin
+    # bootstrap). Commits on clean exit, always closes. Not for use in routes —
+    # those use Depends(get_db).
+    assert _SessionLocal is not None, "init_db() was not called at startup"
+    db: Session = _SessionLocal()
+    try:
+        yield db
+        db.commit()
     finally:
         db.close()

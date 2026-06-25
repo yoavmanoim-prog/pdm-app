@@ -14,7 +14,11 @@ service:
 
 ingress:
   enabled: true
-  host: pdm.52.202.248.204.nip.io
+  # Empty = catch-all (no host filter). Production keeps this empty so CloudFront
+  # (which sends its own domain as the Host header) still reaches it. Staging and
+  # dev override this per-env with a nip.io host so they're individually
+  # addressable on the shared ELB, e.g. staging.52.202.248.204.nip.io
+  host: ""
 
 resources:
   requests:
@@ -56,7 +60,27 @@ externalSecrets:
   enabled: false
   clusterSecretStore: aws-secrets-manager
   passwordSecretName: pdm/backend/db-password
+  # Optional extra secrets pulled from Secrets Manager into pdm-backend-secret.
+  # Leave blank to source the value from values.auth.* instead (dev only). Set
+  # these ONLY after the Secrets Manager entries exist, or ESO sync will error.
+  jwtSecretName: ""                      # e.g. pdm/backend/jwt-secret
+  bootstrapAdminPasswordSecretName: ""   # e.g. pdm/backend/bootstrap-admin-password
   refreshInterval: 1h
+
+# Authentication (user pool). All off/blank by default so the chart is unchanged
+# unless an environment opts in. Only meaningful on the remote (authority) vault.
+auth:
+  # set to seed the first admin on deploy. Idempotent: only the remote vault acts,
+  # and only if no admin exists yet. Pairs with the password secret below.
+  bootstrapAdminEmail: ""
+  # mount JWT_SECRET (the token signing key) into the deployment. Turn on once the
+  # secret is provided — via ESO (externalSecrets.jwtSecretName) in real clusters,
+  # or auth.jwtSecret below for local/dev.
+  jwtSecretEnabled: false
+  # dev-only fallbacks, used when externalSecrets.enabled=false. In real clusters
+  # these come from Secrets Manager via ESO — never put real secrets here.
+  jwtSecret: ""
+  bootstrapAdminPassword: ""
 
 migrations:
   jobEnabled: false

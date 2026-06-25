@@ -1,3 +1,4 @@
+import logging
 import uuid
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -14,6 +15,7 @@ from app.config import settings
 from app.protocol.engine import run_commit_checks
 from app import storage
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["commits"])
 
 
@@ -144,6 +146,15 @@ async def create_commit(
 
     db.commit()
     db.refresh(commit)
+
+    # auto-link BOM sons and retroactively link this doc to existing assemblies
+    try:
+        from app.services.pdf_bom import auto_link_sons, retro_link_fathers
+        auto_link_sons(pdf_bytes, repo_id, doc_id, db)
+        retro_link_fathers(repo_id, doc_id, db)
+    except Exception as e:
+        logger.warning("pdf_bom extraction failed for commit %s: %s", short_hash, e)
+
     return commit
 
 
@@ -257,6 +268,19 @@ def amend_commit(
     ))
     db.commit()
     db.refresh(commit)
+
+    # soft recommit — re-run BOM extraction against the existing PDF in S3
+    from app.services.pdf_bom import auto_link_sons, retro_link_fathers
+    for cf in commit.files:
+        if not cf.s3_key_pdf:
+            continue
+        try:
+            pdf_bytes = storage.download_file(cf.s3_key_pdf)
+            auto_link_sons(pdf_bytes, repo_id, cf.document_id, db)
+            retro_link_fathers(repo_id, cf.document_id, db)
+        except Exception as e:
+            logger.warning("pdf_bom re-extraction failed on amend %s: %s", short_hash, e)
+
     return commit
 
 
@@ -292,10 +316,10 @@ def get_diff(repo_id: uuid.UUID, short_hash: str, db: Session = Depends(get_db))
                 .order_by(desc(Commit.timestamp))
                 .first()
             )
-            if prev_cf and prev_cf.s3_key_pdf:
-                prev_pdf_url = storage.generate_presigned_url(prev_cf.s3_key_pdf)
+            if prev_cf:
+                prev_pdf_url = storage.presigned_url_if_exists(prev_cf.s3_key_pdf)
 
-        current_pdf_url = storage.generate_presigned_url(cf.s3_key_pdf) if cf.s3_key_pdf else None
+        current_pdf_url = storage.presigned_url_if_exists(cf.s3_key_pdf)
 
         doc = db.get(Document, cf.document_id)
         result.append({
