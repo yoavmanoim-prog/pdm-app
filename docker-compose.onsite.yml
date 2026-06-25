@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MechDocs — ON-SITE stack (no AWS).
+#
+# A self-contained deployment for a single factory server: backend + frontend +
+# postgres + a local disk volume for files. It does NOT touch AWS — no S3, no
+# ~/.aws mount, no remote vault. This is a SEPARATE app from the cloud build; it
+# only differs by using the app.onsite entrypoint (filesystem storage).
+#
+# Local build & run (for testing on your machine):
+#     cp .env.onsite.example .env      # then edit the secrets
+#     docker compose -f docker-compose.onsite.yml up -d --build
+#     open http://localhost/
+#
+# At a customer site it runs from pre-built images loaded by install.sh
+# (see release.sh) — no internet or registry needed.
+# ─────────────────────────────────────────────────────────────────────────────
+name: pdm-onsite
+
+services:
+
+  # ── Backend (FastAPI, filesystem storage) ───────────────────────────────────
+  pdm-backend:
+    # `image` lets the site run from a docker-load'ed image; `build` lets you
+    # build locally with `--build`. Local/dev builds are tagged "dev"; a real
+    # semantic version (e.g. 2.0.1) is only stamped for production releases by
+    # release.sh.
+    image: pdm-backend:${VERSION:-dev}
+    build: ./backend
+    # Migrate the DB, then serve the ON-SITE entrypoint (app.onsite) which swaps
+    # S3 for the local filesystem. No --reload: this is a real deployment.
+    command: sh -c "alembic upgrade head && uvicorn app.onsite:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATABASE_URL: postgresql://pdm:${DB_PASSWORD:-pdm}@db:5432/pdm
+      # Standalone server: it owns the user table (no delegation to a remote vault).
+      VAULT_MODE: remote
+      # Files live on the mounted volume below — not S3.
+      LOCAL_STORAGE_PATH: /data/vault
+      # The browser reaches files through nginx's /api proxy (see frontend).
+      FILE_PUBLIC_BASE: /api
+      # Dummy non-empty value: a couple of endpoints guard on `S3_BUCKET` being
+      # set. We never call S3 (storage is swapped), but this keeps those guards
+      # happy without editing any cloud file.
+      S3_BUCKET: local-fs
+      # Signs both login tokens AND file links — MUST be a strong random value.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # First-run admin account (created once if no admin exists yet).
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      # The SPA is served same-origin via nginx, so CORS isn't needed in practice;
+      # kept permissive for the LAN.
+      CORS_ORIGINS: "*"
+    volumes:
+      # Persistent file store. Survives container restarts/upgrades.
+      - vault-data:/data/vault
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend (nginx serving the built SPA, proxies /api → backend) ──────────
+  frontend:
+    image: pdm-frontend:${VERSION:-dev}
+    build: ./frontend
+    ports:
+      - "80:80"        # the factory opens http://<server-ip>/
+    depends_on:
+      - pdm-backend
+    restart: unless-stopped
+
+  # ── Database (local PostgreSQL) ─────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pdm
+      POSTGRES_USER: pdm
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-pdm}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  vault-data:   # PDFs/SVGs on disk (the S3 replacement)
+  db-data:      # postgres data
