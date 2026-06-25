@@ -94,6 +94,14 @@ jobs:
             docker push $ECR_REGISTRY/$ECR_BACKEND:latest
           fi
 
+          # on a production release (v* tag), also tag the image with the
+          # version tag so the ECR image carries the release version (e.g.
+          # v2.0.1), not just the commit SHA.
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            docker tag $IMAGE $ECR_REGISTRY/$ECR_BACKEND:${{ github.ref_name }}
+            docker push $ECR_REGISTRY/$ECR_BACKEND:${{ github.ref_name }}
+          fi
+
       # Only deploy the frontend to S3/CloudFront for production (v* tags).
       # Staging has no separate CloudFront distribution.
       - name: Build and deploy frontend to S3
@@ -130,14 +138,19 @@ jobs:
           git clone https://x-access-token:${GITOPS_PAT}@github.com/yoavmanoim-prog/pdm-gitops.git
           cd pdm-gitops
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # production pins the human-readable release tag (e.g. v2.0.1). The
+            # build-and-push job already pushed this tag to ECR alongside the SHA.
             ENV=production
+            DEPLOY_TAG="${{ github.ref_name }}"
           else
+            # staging tracks the commit SHA — there's no version tag on develop.
             ENV=staging
+            DEPLOY_TAG="${IMAGE_TAG}"
           fi
-          sed -i "s/tag: .*/tag: ${IMAGE_TAG}/" ${ENV}/backend/values.yaml
+          sed -i "s/tag: .*/tag: ${DEPLOY_TAG}/" ${ENV}/backend/values.yaml
           git config user.email "ci@pdm"
           git config user.name "GitHub Actions"
-          git commit -am "ci: update backend image to ${IMAGE_TAG}"
+          git commit -am "ci: update backend image to ${DEPLOY_TAG}"
           git push
 
   # Post-deploy smoke test on staging. After the image tag is committed to the
