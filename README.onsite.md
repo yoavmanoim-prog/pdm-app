@@ -54,6 +54,9 @@ template, `install.sh`, and this README.
 
 ## Install at the site (air-gapped is fine)
 
+Requires Docker (Docker Desktop on Windows, in Linux-container mode — the default).
+
+**Linux / macOS:**
 ```bash
 tar xzf pdm-onsite-2.0.1.tar.gz
 cd pdm-onsite-2.0.1
@@ -61,6 +64,18 @@ cd pdm-onsite-2.0.1
 # edit .env: set DB_PASSWORD, JWT_SECRET, BOOTSTRAP_ADMIN_* (see hints inside)
 ./install.sh                # run again to start the stack
 ```
+
+**Windows (PowerShell):**
+```powershell
+tar xzf pdm-onsite-2.0.1.tar.gz   # tar ships with Windows 10/11
+cd pdm-onsite-2.0.1
+# if scripts are blocked: Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1                # loads images, creates .env from template
+# edit .env (Notepad): DB_PASSWORD, JWT_SECRET, BOOTSTRAP_ADMIN_*
+.\install.ps1                # run again to start the stack
+```
+
+The app itself is OS-agnostic (Linux containers run on Docker Desktop for Windows); only the installer differs per OS.
 
 Then open `http://<server-ip>/` and log in with the bootstrap admin from `.env`
 (change the password immediately).

@@ -75,7 +75,8 @@ docker save -o "${OUT_DIR}/images.tar" \
 # Ship the compose file, the env template, the installer and the docs.
 cp docker-compose.onsite.yml "${OUT_DIR}/"
 cp .env.onsite.example       "${OUT_DIR}/"
-cp install.sh                "${OUT_DIR}/"
+cp install.sh                "${OUT_DIR}/"   # Linux/macOS installer
+cp install.ps1               "${OUT_DIR}/"   # Windows (PowerShell) installer
 cp README.onsite.md          "${OUT_DIR}/" 2>/dev/null || true
 
 # Pin the bundle's default VERSION to this release so `up` runs these exact images.
