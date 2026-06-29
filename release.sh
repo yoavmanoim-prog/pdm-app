@@ -58,7 +58,9 @@ echo "==> Building backend image  ${BACKEND_IMAGE}"
 docker build -t "${BACKEND_IMAGE}" ./backend
 
 echo "==> Building frontend image ${FRONTEND_IMAGE}"
-docker build -t "${FRONTEND_IMAGE}" ./frontend
+# VITE_ONSITE bakes the on-site behavior (watch/browse via /api, Browse button) into
+# this image only — the cloud frontend build never sets it.
+docker build --build-arg VITE_ONSITE=true -t "${FRONTEND_IMAGE}" ./frontend
 
 echo "==> Pulling ${PG_IMAGE}"
 docker pull "${PG_IMAGE}"
