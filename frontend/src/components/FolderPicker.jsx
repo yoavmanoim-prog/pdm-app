@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { browseWatch } from '../api'
 
-const isLocalApp = window.location.hostname === 'localhost'
+// Show the Browse button where a backend filesystem is actually reachable:
+// on a workstation (served at localhost) or in the on-site single-server build
+// (VITE_ONSITE, set only by that image). Cloud builds set neither, so the button
+// stays hidden there exactly as before.
+const isLocalApp = import.meta.env.VITE_ONSITE === 'true' || window.location.hostname === 'localhost'
 
 export default function FolderPicker({ value, onChange }) {
   const [open, setOpen]     = useState(false)

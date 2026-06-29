@@ -37,6 +37,9 @@ services:
       LOCAL_STORAGE_PATH: /data/vault
       # The browser reaches files through nginx's /api proxy (see frontend).
       FILE_PUBLIC_BASE: /api
+      # Folder the "Browse / commit from a folder" feature reads on the server
+      # (e.g. a shared drawings directory). Mounted from WATCH_DIR below.
+      WATCH_BASE: /watch
       # Dummy non-empty value: a couple of endpoints guard on `S3_BUCKET` being
       # set. We never call S3 (storage is swapped), but this keeps those guards
       # happy without editing any cloud file.
@@ -52,6 +55,9 @@ services:
     volumes:
       # Persistent file store. Survives container restarts/upgrades.
       - vault-data:/data/vault
+      # Server folder the folder-picker browses (read-only). Point WATCH_DIR in
+      # .env at the factory's shared drawings directory; defaults to ./watch.
+      - ${WATCH_DIR:-./watch}:/watch:ro
     depends_on:
       db:
         condition: service_healthy
@@ -60,7 +66,12 @@ services:
   # ── Frontend (nginx serving the built SPA, proxies /api → backend) ──────────
   frontend:
     image: pdm-frontend:${VERSION:-dev}
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # On-site build: point the watch/browse feature at the same-origin /api
+        # backend and enable the Browse button. (Cloud/workstation builds omit this.)
+        VITE_ONSITE: "true"
     ports:
       - "80:80"        # the factory opens http://<server-ip>/
     depends_on:
