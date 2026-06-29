@@ -1,7 +1,14 @@
 // All API calls go through this file.
 // The base URL switches based on vault mode (local vs remote).
 
+// The on-site single-server build is a standalone vault served same-origin behind
+// nginx's /api proxy — there is no separate local/remote vault and no :8000 on the
+// host, so EVERY base collapses to /api. Set only by the on-site frontend image
+// (VITE_ONSITE); unset for workstation/cloud builds, which keep the logic below.
+const ONSITE = import.meta.env.VITE_ONSITE === 'true'
+
 function getBase() {
+  if (ONSITE) return '/api'
   const mode = localStorage.getItem('vaultMode') ||
     (window.location.hostname === 'localhost' ? 'local' : 'remote')
   if (mode === 'local') return 'http://localhost:8000'
@@ -16,6 +23,7 @@ function getBase() {
 // :8000, which forwards auth to whatever REMOTE_VAULT_URL points at — so login
 // always hits the one shared user store regardless of which vault you're browsing.
 function authBase() {
+  if (ONSITE) return '/api'
   if (window.location.hostname !== 'localhost') return '/api'
   return 'http://localhost:8000'
 }
@@ -26,7 +34,7 @@ function authBase() {
 // only by the on-site frontend image build (see frontend/Dockerfile +
 // docker-compose.onsite.yml); it's unset for workstation/cloud builds, so this is
 // identical to the original 'http://localhost:8000' there.
-const LOCAL_BASE = import.meta.env.VITE_ONSITE === 'true' ? '/api' : 'http://localhost:8000'
+const LOCAL_BASE = ONSITE ? '/api' : 'http://localhost:8000'
 
 // where the login token lives. The backend stamps every request's identity from
 // the JWT in the Authorization header, so we attach it to every call below.
