@@ -11,6 +11,13 @@ RUN npm install
 
 # Copy the rest of the source code and build it
 COPY . .
+# Optional on-site flag baked into the build. ONLY docker-compose.onsite.yml and
+# release.sh pass --build-arg VITE_ONSITE=true; the cloud build (npm run build in
+# CI) and the dev/staging frontends never set it, so the SPA is byte-for-byte the
+# same there. When set, it points the watch/browse feature at the same-origin
+# /api backend instead of the workstation's localhost:8000 vault.
+ARG VITE_ONSITE=""
+RUN [ -z "$VITE_ONSITE" ] || echo "VITE_ONSITE=$VITE_ONSITE" > .env.production
 RUN npm run build
 # After this, /app/dist contains the compiled HTML/CSS/JS files
 

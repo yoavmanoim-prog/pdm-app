@@ -20,9 +20,13 @@ function authBase() {
   return 'http://localhost:8000'
 }
 
-// Watch/browse always talks to the local vault — it reads the local filesystem
-// regardless of which vault mode the UI is in.
-const LOCAL_BASE = 'http://localhost:8000'
+// Watch/browse reads a filesystem the BACKEND can see (not S3). It talks to the
+// engineer's LOCAL vault on :8000 — EXCEPT in the on-site single-server build,
+// where the backend is same-origin behind nginx's /api proxy. VITE_ONSITE is set
+// only by the on-site frontend image build (see frontend/Dockerfile +
+// docker-compose.onsite.yml); it's unset for workstation/cloud builds, so this is
+// identical to the original 'http://localhost:8000' there.
+const LOCAL_BASE = import.meta.env.VITE_ONSITE === 'true' ? '/api' : 'http://localhost:8000'
 
 // where the login token lives. The backend stamps every request's identity from
 // the JWT in the Authorization header, so we attach it to every call below.
