@@ -9,6 +9,9 @@ spec:
   selector:
     app: pdm-backend
   ports:
-    - protocol: TCP
+    # named port — the ServiceMonitor scrapes by name (port: http); without the
+    # name Prometheus matches nothing and the backend silently stops being scraped
+    - name: http
+      protocol: TCP
       port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.port }}

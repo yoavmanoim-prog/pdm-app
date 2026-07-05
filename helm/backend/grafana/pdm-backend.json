@@ -1,7 +1,10 @@
 {
   "title": "PDM Backend",
   "uid": "pdm-backend",
-  "tags": ["pdm", "backend"],
+  "tags": [
+    "pdm",
+    "backend"
+  ],
   "timezone": "browser",
   "schemaVersion": 38,
   "refresh": "30s",
@@ -11,15 +14,25 @@
       "type": "timeseries",
       "title": "HTTP Request Rate (req/s)",
       "description": "Requests per second across all endpoints, split by status code family.",
-      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total{job=\"pdm-backend\"}[1m])) by (status)",
+          "expr": "sum(rate(http_requests_total{job=\"pdm-backend\", namespace=~\"$namespace\"}[1m])) by (status)",
           "legendFormat": "{{ status }}"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
       }
     },
     {
@@ -27,23 +40,33 @@
       "type": "timeseries",
       "title": "Request Latency p50 / p95 / p99 (s)",
       "description": "Backend response time percentiles. p99 spike = someone is waiting a long time.",
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"pdm-backend\"}[1m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"pdm-backend\", namespace=~\"$namespace\"}[1m])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"pdm-backend\"}[1m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"pdm-backend\", namespace=~\"$namespace\"}[1m])) by (le))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"pdm-backend\"}[1m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"pdm-backend\", namespace=~\"$namespace\"}[1m])) by (le))",
           "legendFormat": "p99"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
       }
     },
     {
@@ -51,22 +74,36 @@
       "type": "timeseries",
       "title": "Error Rate (5xx per second)",
       "description": "Rate of server-side errors. Any sustained non-zero value needs investigation.",
-      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total{job=\"pdm-backend\", status=~\"5..\"}[1m]))",
+          "expr": "sum(rate(http_requests_total{job=\"pdm-backend\", namespace=~\"$namespace\", status=~\"5..\"}[1m]))",
           "legendFormat": "5xx errors/s"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
-          "color": { "fixedColor": "red", "mode": "fixed" },
+          "color": {
+            "fixedColor": "red",
+            "mode": "fixed"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red",   "value": 0.01 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
             ]
           }
         }
@@ -77,31 +114,58 @@
       "type": "timeseries",
       "title": "Requests by Endpoint",
       "description": "Break down request rate per API path so hot endpoints are visible.",
-      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total{job=\"pdm-backend\"}[1m])) by (handler)",
+          "expr": "sum(rate(http_requests_total{job=\"pdm-backend\", namespace=~\"$namespace\"}[1m])) by (handler)",
           "legendFormat": "{{ handler }}"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
       }
     },
     {
       "id": 5,
       "type": "stat",
       "title": "Total Requests (last 24 h)",
-      "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
       "targets": [
         {
-          "expr": "sum(increase(http_requests_total{job=\"pdm-backend\"}[24h]))",
+          "expr": "sum(increase(http_requests_total{job=\"pdm-backend\", namespace=~\"$namespace\"}[24h]))",
           "legendFormat": ""
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "color": { "mode": "thresholds" },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
         }
       }
     },
@@ -109,10 +173,15 @@
       "id": 6,
       "type": "stat",
       "title": "Error % (last 1 h)",
-      "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
+      "gridPos": {
+        "x": 6,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
       "targets": [
         {
-          "expr": "100 * sum(increase(http_requests_total{job=\"pdm-backend\", status=~\"5..\"}[1h])) / sum(increase(http_requests_total{job=\"pdm-backend\"}[1h]))",
+          "expr": "100 * sum(increase(http_requests_total{job=\"pdm-backend\", namespace=~\"$namespace\", status=~\"5..\"}[1h])) / sum(increase(http_requests_total{job=\"pdm-backend\", namespace=~\"$namespace\"}[1h]))",
           "legendFormat": ""
         }
       ],
@@ -122,9 +191,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red",    "value": 5 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           }
         }
@@ -134,10 +212,15 @@
       "id": 7,
       "type": "stat",
       "title": "Pod Count (pdm-backend)",
-      "gridPos": { "x": 12, "y": 16, "w": 6, "h": 4 },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
       "targets": [
         {
-          "expr": "count(up{job=\"pdm-backend\"} == 1)",
+          "expr": "count(up{job=\"pdm-backend\", namespace=~\"$namespace\"} == 1)",
           "legendFormat": ""
         }
       ],
@@ -147,8 +230,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",   "value": null },
-              { "color": "green", "value": 1 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
             ]
           }
         }
@@ -158,10 +247,15 @@
       "id": 8,
       "type": "stat",
       "title": "Avg Latency p95 (last 5 min)",
-      "gridPos": { "x": 18, "y": 16, "w": 6, "h": 4 },
+      "gridPos": {
+        "x": 18,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"pdm-backend\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"pdm-backend\", namespace=~\"$namespace\"}[5m])) by (le))",
           "legendFormat": ""
         }
       ],
@@ -171,13 +265,287 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 0.5 },
-              { "color": "red",    "value": 2 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
             ]
           }
         }
       }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Resources & Health",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "CPU Usage per Pod (cores)",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"pdm-backend.*\", container!=\"\", image!=\"\"}[5m]))",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Memory Working Set per Pod",
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"pdm-backend.*\", container!=\"\"})",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Network I/O",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"$namespace\", pod=~\"pdm-backend.*\"}[5m]))",
+          "legendFormat": "receive",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(container_network_transmit_bytes_total{namespace=~\"$namespace\", pod=~\"pdm-backend.*\"}[5m]))",
+          "legendFormat": "transmit",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Pod Restarts (last 1 h)",
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\", pod=~\"pdm-backend.*\"}[1h])) or vector(0)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Backend Up",
+      "gridPos": {
+        "x": 18,
+        "y": 29,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "min(up{job=\"pdm-backend\", namespace=~\"$namespace\"}) or vector(0)",
+          "refId": "A"
+        }
+      ]
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": null,
+        "query": "label_values(http_requests_total{job=\"pdm-backend\"}, namespace)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "pdm-production",
+          "value": "pdm-production"
+        },
+        "sort": 1
+      }
+    ]
+  }
 }
