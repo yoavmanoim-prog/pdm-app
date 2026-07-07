@@ -1,14 +1,13 @@
-# CI — runs on every pull request: lint + tests, nothing else.
-# Fast feedback with no AWS access. Deploys live in deploy-staging.yml
-# (develop) and deploy-production.yml (v* tags).
-name: CI
+# CI (backend) — runs on pull requests that touch backend code: lint + tests.
+# Frontend PRs are checked by ci-frontend.yml. Deploys live in
+# deploy-staging.yml (develop) and deploy-production.yml (v* tags).
+name: CI Backend
 
 on:
   pull_request:
     branches: [main, develop]
     paths:
       - 'backend/**'
-      - 'frontend/**'
       - '.github/workflows/**'
 
 jobs:

@@ -1,7 +1,8 @@
-# Deploy STAGING — every push to develop:
+# Deploy STAGING — every push to develop that touches the BACKEND:
 #   test → build image (:<sha> + :latest) → point gitops staging at it →
 #   smoke-test the live URL → Slack on any failure.
-# ArgoCD watches pdm-gitops and does the actual rollout.
+# ArgoCD watches pdm-gitops and does the actual rollout. The frontend has no
+# staging deployment (no separate CloudFront) — it ships on release tags only.
 name: Deploy Staging
 
 on:
@@ -9,7 +10,6 @@ on:
     branches: [develop]
     paths:
       - 'backend/**'
-      - 'frontend/**'
       - '.github/workflows/**'
 
 env:
