@@ -1,0 +1,139 @@
+# Deploy STAGING — every push to develop:
+#   test → build image (:<sha> + :latest) → point gitops staging at it →
+#   smoke-test the live URL → Slack on any failure.
+# ArgoCD watches pdm-gitops and does the actual rollout.
+name: Deploy Staging
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/**'
+
+env:
+  ECR_REGISTRY: 302954730632.dkr.ecr.us-east-1.amazonaws.com
+  ECR_BACKEND: pdm-backend
+  AWS_REGION: us-east-1
+
+# never run two staging deploys at once (they'd race on the gitops repo)
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('backend/requirements.txt', 'backend/requirements-dev.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint
+        run: flake8 app/
+
+      - name: Test
+        run: pytest tests/ -v
+        env:
+          DATABASE_URL: "postgresql://test:test@localhost/test"
+          S3_BUCKET: "test-bucket"
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC auth to AWS — no stored keys
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image (:<sha> and :latest)
+        run: |
+          IMAGE=$ECR_REGISTRY/$ECR_BACKEND:${{ github.sha }}
+          docker build \
+            --platform linux/amd64 \
+            --cache-from $ECR_REGISTRY/$ECR_BACKEND:latest \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t $IMAGE ./backend
+          docker push $IMAGE
+          docker tag $IMAGE $ECR_REGISTRY/$ECR_BACKEND:latest
+          docker push $ECR_REGISTRY/$ECR_BACKEND:latest
+
+  update-gitops:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Point staging at the new image (ArgoCD deploys it)
+        env:
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+        run: |
+          git clone https://x-access-token:${GITOPS_PAT}@github.com/yoavmanoim-prog/pdm-gitops.git
+          cd pdm-gitops
+          sed -i "s/tag: .*/tag: ${{ github.sha }}/" staging/backend/values.yaml
+          git config user.email "ci@pdm"
+          git config user.name "GitHub Actions"
+          git commit -am "ci: update staging backend image to ${{ github.sha }}"
+          git push
+
+  # ArgoCD syncs asynchronously — poll /health until the new deploy serves.
+  # Runs only if the STAGING_URL repo variable is set (Settings → Variables).
+  smoke-test:
+    needs: update-gitops
+    if: vars.STAGING_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll staging /health
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          base="${STAGING_URL%/}"
+          echo "Polling ${base}/health…"
+          for i in $(seq 1 30); do
+            if body=$(curl -fsS --max-time 10 "${base}/health" 2>/dev/null) \
+                 && echo "$body" | grep -q '"healthy"[[:space:]]*:[[:space:]]*true'; then
+              echo "✓ staging healthy: $body"
+              exit 0
+            fi
+            echo "attempt ${i}/30: not healthy yet, retrying in 10s…"
+            sleep 10
+          done
+          echo "✗ staging did not report healthy within ~5 minutes"
+          exit 1
+
+  notify-slack:
+    needs: [test, build-and-push, update-gitops, smoke-test]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: Staging deploy failed on *${{ github.repository }}*\nCommit: `${{ github.sha }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+            }

@@ -1,0 +1,138 @@
+# Deploy PRODUCTION — every v* tag (e.g. v2.1.2):
+#   PROMOTE the staging-tested image (re-tag in ECR, NO rebuild) →
+#   build+publish the frontend to S3/CloudFront → point gitops production
+#   at the version tag → Slack on any failure.
+#
+# Why promote instead of rebuild: the image that ran on staging is the exact
+# image production gets — byte for byte. A rebuild at tag time could differ
+# (newer base image, dependency drift) and would ship bits nobody tested.
+# No test job here for the same reason: nothing new is built, so there is
+# nothing new to test.
+name: Deploy Production
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  ECR_REGISTRY: 302954730632.dkr.ecr.us-east-1.amazonaws.com
+  ECR_BACKEND: pdm-backend
+  AWS_REGION: us-east-1
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  promote-image:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC auth to AWS — no stored keys
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # need parent commits to resolve the staging SHA below
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Re-tag the staging image as ${{ github.ref_name }} (no rebuild)
+        run: |
+          # Which commit's image do we promote? Staging images are tagged with
+          # the develop commit SHA. A release tag usually sits on a develop→main
+          # MERGE commit whose own SHA was never built — its second parent
+          # (HEAD^2) is the develop head that was. Try the tagged commit first,
+          # then the merge's develop-side parent.
+          CANDIDATES="$(git rev-parse HEAD) $(git rev-parse HEAD^2 2>/dev/null || true)"
+
+          SHA=""
+          for c in $CANDIDATES; do
+            if aws ecr describe-images --repository-name $ECR_BACKEND \
+                 --image-ids imageTag=$c >/dev/null 2>&1; then
+              SHA=$c
+              break
+            fi
+          done
+
+          if [ -z "$SHA" ]; then
+            echo "ERROR: no staging image found in ECR for $CANDIDATES."
+            echo "Was this release cut from a commit that went through develop?"
+            exit 1
+          fi
+
+          echo "Promoting $ECR_BACKEND:$SHA → $ECR_BACKEND:${{ github.ref_name }}"
+          # re-tag inside ECR by re-putting the same manifest — no docker pull/push
+          MANIFEST=$(aws ecr batch-get-image --repository-name $ECR_BACKEND \
+            --image-ids imageTag=$SHA --query 'images[0].imageManifest' --output text)
+          aws ecr put-image --repository-name $ECR_BACKEND \
+            --image-tag "${{ github.ref_name }}" --image-manifest "$MANIFEST"
+
+  # The frontend is static files, not an image — it is built and published
+  # here (S3 + CloudFront invalidation). Staging has no separate distribution.
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build and publish frontend to S3 + invalidate CloudFront
+        run: |
+          BUCKET="pdm-frontend-production"
+
+          # find the CloudFront distribution that serves this bucket (search all
+          # origins — the backend ELB is often origin #0)
+          CF_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?contains(to_string(Origins.Items[*].DomainName), '${BUCKET}.s3')].Id | [0]" \
+            --output text)
+
+          if [ -z "$CF_ID" ] || [ "$CF_ID" = "None" ]; then
+            echo "ERROR: could not find CloudFront distribution for bucket $BUCKET"
+            exit 1
+          fi
+
+          cd frontend
+          npm ci
+          npm run build
+          aws s3 sync dist/ s3://$BUCKET --delete
+          aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
+
+  update-gitops:
+    needs: promote-image   # the version tag must exist in ECR before ArgoCD sees it
+    runs-on: ubuntu-latest
+    steps:
+      - name: Point production at ${{ github.ref_name }} (ArgoCD deploys it)
+        env:
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+        run: |
+          git clone https://x-access-token:${GITOPS_PAT}@github.com/yoavmanoim-prog/pdm-gitops.git
+          cd pdm-gitops
+          sed -i "s/tag: .*/tag: ${{ github.ref_name }}/" production/backend/values.yaml
+          git config user.email "ci@pdm"
+          git config user.name "GitHub Actions"
+          git commit -am "ci: update production backend image to ${{ github.ref_name }}"
+          git push
+
+  notify-slack:
+    needs: [promote-image, deploy-frontend, update-gitops]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: PRODUCTION deploy failed on *${{ github.repository }}*\nRelease: `${{ github.ref_name }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+            }
